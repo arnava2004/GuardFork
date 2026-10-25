@@ -13,6 +13,19 @@ import os
 import subprocess
 from pathlib import Path
 
+FORK_AGENT = "guardfork.fork.fork_agent:ForkReplayAppWorldAgent"
+GUARDFORK_ROOT = Path(__file__).resolve().parents[1]
+
+
+def harbor_env(hz_root: Path) -> dict[str, str]:
+    return {
+        **os.environ,
+        "PYTHONPATH": os.pathsep.join([str(hz_root), str(hz_root / "src"), str(GUARDFORK_ROOT)]),
+        "PYTHONHASHSEED": "0",
+        "BUILDX_BUILDER": "default",
+        "COMPOSE_BAKE": "false",
+    }
+
 
 def build_harbor_command(
     *,
@@ -30,7 +43,10 @@ def build_harbor_command(
     student_reasoning_prefill: str = "none",
     student_harness_dir: str | None = None,
     agent_import_path: str = "envs.appworld.agent:AppWorldMinisweAgent",
+    replay_plan_path: Path | None = None,
 ) -> list[str]:
+    if replay_plan_path is not None:
+        agent_import_path = FORK_AGENT
     harbor = hz_root / ".venv" / "bin" / "harbor"
     dataset = hz_root / "data" / "appworld-harbor" / "tasks"
     components = hz_root / "harness_bank" / "empty"
@@ -88,12 +104,14 @@ def build_harbor_command(
         str(output_dir),
         "--yes",
     ]
+    extra: list[str] = []
     if student_harness_dir is not None:
+        extra += ["--agent-kwarg", f"student_harness_dir={json.dumps(student_harness_dir)}"]
+    if replay_plan_path is not None:
+        extra += ["--agent-kwarg", f"replay_plan_path={json.dumps(str(replay_plan_path))}"]
+    if extra:
         idx = cmd.index("--n-attempts")
-        cmd[idx:idx] = [
-            "--agent-kwarg",
-            f"student_harness_dir={json.dumps(student_harness_dir)}",
-        ]
+        cmd[idx:idx] = extra
     for task in tasks:
         cmd.extend(["--include-task-name", task])
     return cmd
@@ -112,6 +130,8 @@ def main() -> int:
     ap.add_argument("--attempts", type=int, default=1)
     ap.add_argument("--concurrency", type=int, default=1)
     ap.add_argument("--student-harness-dir", default=None)
+    ap.add_argument("--replay-plan", type=Path, default=None,
+                    help="ReplayPlan JSON; runs ForkReplayAppWorldAgent on the plan's task")
     ap.add_argument("--job-name", required=True)
     ap.add_argument("--output-dir", type=Path,
                     default=Path(__file__).resolve().parents[1] / "jobs")
@@ -124,17 +144,13 @@ def main() -> int:
             for line in args.tasks_file.read_text().splitlines()
             if line.strip() and not line.startswith("#")
         )
+    if args.replay_plan is not None and not tasks:
+        tasks = [json.loads(args.replay_plan.read_text())["task_id"]]
     if not tasks:
         raise SystemExit("pass at least one --task or --tasks-file")
 
     hz_root = args.hz_root.resolve()
-    guardfork_root = Path(__file__).resolve().parents[1]
-    env = {
-        **os.environ,
-        "PYTHONPATH": os.pathsep.join([str(hz_root), str(hz_root / "src"), str(guardfork_root)]),
-        "BUILDX_BUILDER": "default",
-        "COMPOSE_BAKE": "false",
-    }
+    env = harbor_env(hz_root)
     cmd = build_harbor_command(
         hz_root=hz_root,
         tasks=tasks,
@@ -146,6 +162,7 @@ def main() -> int:
         attempts=args.attempts,
         concurrency=args.concurrency,
         student_harness_dir=args.student_harness_dir,
+        replay_plan_path=args.replay_plan.resolve() if args.replay_plan else None,
     )
     return subprocess.run(cmd, cwd=hz_root, env=env, check=False).returncode
 

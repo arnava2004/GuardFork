@@ -66,6 +66,46 @@ def test_offline_request_reconstruction(tmp_path):
     assert report.turns_checked == 1 and report.canonical_equal == 1
 
 
+def _record_with_contexts():
+    from guardfork.telemetry.trials import TrialRecord, TurnRecord
+
+    sys_msg = {"type": "system", "content": "sys"}
+    base = [{"type": "human", "content": "task"}]
+    events = []
+    for i in range(3):
+        ctx = list(base)
+        for j in range(i):
+            ctx += [{"type": "ai", "content": "", "tool_calls": [
+                {"name": "execute", "args": {"command": f"c{j}"}, "id": f"id{j}",
+                 "type": "tool_call"}]},
+                    {"type": "tool", "content": f"o{j}", "tool_call_id": f"id{j}"}]
+        cmd = f"c{i}" if i < 2 else None
+        events.append({"system_message": sys_msg, "context": ctx,
+                       "original": {"tool_call": {"name": "execute", "command": cmd}
+                                    if cmd else None, "content": "", "reasoning": ""},
+                       "raw_original": {"tool_calls": [], "invalid_tool_calls": []}})
+    turns = [TurnRecord(i, f"c{i}" if i < 2 else None, False) for i in range(3)]
+    return TrialRecord(Path("t"), "j", "aaaaaaa_1", 1.0, None, 1.0, turns, events)
+
+
+def test_fork_plan_prefix_excludes_system_message():
+    from guardfork.fork.harbor_replay import build_replay_plan
+
+    plan = build_replay_plan(_record_with_contexts(), 2)
+    assert plan.commands == ("c0",) and plan.expected_observations == ("o0",)
+    assert [m["type"] for m in plan.message_prefix] == ["human", "ai", "tool"]
+
+
+def test_full_replay_skips_no_command_turn_and_roundtrips(tmp_path):
+    from guardfork.fork.harbor_replay import full_replay_plan, load_plan, save_plan
+
+    plan = full_replay_plan(_record_with_contexts())
+    assert plan.full_replay and plan.commands == ("c0", "c1")
+    assert plan.expected_observations == ("o0", "o1")
+    path = save_plan(plan, tmp_path / "p.json")
+    assert load_plan(path) == plan
+
+
 def test_manifest_roundtrip(tmp_path):
     compose = tmp_path / "compose.yaml"
     compose.write_text("services: {}\n")

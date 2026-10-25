@@ -18,3 +18,4 @@ appworld_initial_context.json
 *.tar
 *.jsonl
 .env
+.DS_Store

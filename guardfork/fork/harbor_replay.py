@@ -41,10 +41,11 @@ class ReplayPlan:
     commands: tuple[str, ...]
     expected_observations: tuple[str, ...]
     message_prefix: tuple[dict[str, Any], ...]
+    full_replay: bool = False
 
     @property
     def max_turns(self) -> int:
-        return 40 - (self.fork_turn - 1)
+        return max(1, 40 - (self.fork_turn - 1))
 
     def to_json(self) -> dict[str, Any]:
         data = asdict(self)
@@ -61,6 +62,7 @@ class ReplayPlan:
             commands=tuple(data["commands"]),
             expected_observations=tuple(data["expected_observations"]),
             message_prefix=tuple(data["message_prefix"]),
+            full_replay=bool(data.get("full_replay", False)),
         )
 
 
@@ -105,24 +107,29 @@ def _event_command(event: dict[str, Any]) -> str:
     return ""
 
 
+def _prefix_actions(record: TrialRecord, n_events: int) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    commands, observations = [], []
+    for i in range(n_events):
+        cmd = _event_command(record.events[i])
+        if not cmd:
+            continue
+        commands.append(cmd)
+        observations.append(observation_after(record.events, i) or "")
+    return tuple(commands), tuple(observations)
+
+
 def build_replay_plan(record: TrialRecord, fork_turn: int) -> ReplayPlan:
     """Commands/observations 1..t-1 and the message prefix needed to reach s_t.
 
-    Raises NotForkable for turns rejected by `fork.select.forkable_turns`.
+    The prefix is the student-visible conversation before turn t (system prompt excluded;
+    `create_agent` adds it). Raises NotForkable for turns rejected by `forkable_turns`.
     """
     traj = to_trajectory(record)
     allowed = forkable_turns(traj)
     if fork_turn not in allowed:
         raise NotForkable(f"turn {fork_turn} is not forkable (allowed {allowed})")
-    prefix_events = record.events[: fork_turn - 1]
-    commands = tuple(_event_command(e) for e in prefix_events)
-    observations = tuple(observation_after(record.events, i) or ""
-                         for i in range(fork_turn - 1))
+    commands, observations = _prefix_actions(record, fork_turn - 1)
     last = record.events[fork_turn - 1] if record.events else {}
-    messages = []
-    if last.get("system_message"):
-        messages.append(last["system_message"])
-    messages.extend(last.get("context") or [])
     return ReplayPlan(
         source_trial=record.trial_dir,
         task_id=record.task_id or traj.task_id,
@@ -130,8 +137,33 @@ def build_replay_plan(record: TrialRecord, fork_turn: int) -> ReplayPlan:
         initial_context_sha256=initial_context_sha256(record.trial_dir),
         commands=commands,
         expected_observations=observations,
-        message_prefix=tuple(messages),
+        message_prefix=tuple(last.get("context") or []),
     )
+
+
+def full_replay_plan(record: TrialRecord) -> ReplayPlan:
+    """Replay every recorded command (t = T + 1) with no model calls, for reward parity."""
+    commands, observations = _prefix_actions(record, len(record.events))
+    return ReplayPlan(
+        source_trial=record.trial_dir,
+        task_id=record.task_id or "",
+        fork_turn=len(record.events) + 1,
+        initial_context_sha256=initial_context_sha256(record.trial_dir),
+        commands=commands,
+        expected_observations=observations,
+        message_prefix=(),
+        full_replay=True,
+    )
+
+
+def save_plan(plan: ReplayPlan, path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(plan.to_json(), ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def load_plan(path: Path) -> ReplayPlan:
+    return ReplayPlan.from_json(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
 async def replay_prefix(commands: tuple[str, ...], expected_observations: tuple[str, ...],
@@ -146,23 +178,30 @@ async def replay_prefix(commands: tuple[str, ...], expected_observations: tuple[
             raise ReplayDiverged(i, expected, got)
 
 
+def deserialize_messages(messages: tuple[dict[str, Any], ...] | list[dict[str, Any]]):
+    """Harness-Zero `serialize_message` dicts -> LangChain message objects."""
+    from langchain_core.messages import messages_from_dict  # type: ignore[import-not-found]
+
+    return messages_from_dict([{"type": m["type"], "data": m} for m in messages])
+
+
 def make_fork_agent_class():
     """Return `ForkReplayAppWorldAgent(AppWorldMinisweAgent)`, importing Harness-Zero lazily.
 
-    The class reads a serialized ReplayPlan from its agent kwargs, overrides `initialize`
-    (hash check + prefix replay) and the graph construction. It must not touch the verifier.
+    Pass `replay_plan_path` as an agent kwarg. The agent runs AppWorld's own initialize
+    (task check, profile command, initial-context artifact), requires the artifact sha256 to
+    match the source trial, replays commands 1..t-1 with exact observation equality, then
+    seeds the logged prefix and runs the inner graph with `max_turns = 40 - (t - 1)`.
+    With `full_replay`, it stops after replaying every command (no model calls). Grading is
+    left to Harbor's verifier untouched.
     """
-    from envs.appworld.agent import (  # type: ignore[import-not-found]
-        PROFILE_COMMAND,
-        AppWorldMinisweAgent,
-    )
-    from harness_zero.harness import HarnessZeroMinisweAgent  # type: ignore[import-not-found]
+    from envs.appworld.agent import AppWorldMinisweAgent  # type: ignore[import-not-found]
+    from harness_zero.student import OBSERVATION_TEMPLATE  # type: ignore[import-not-found]
     from langchain_core.runnables import RunnableLambda  # type: ignore[import-not-found]
 
     class ForkReplayAppWorldAgent(AppWorldMinisweAgent):
-        def __init__(self, *args, replay_plan: dict | ReplayPlan | None = None, **kwargs):
-            plan = (ReplayPlan.from_json(replay_plan) if isinstance(replay_plan, dict)
-                    else replay_plan)
+        def __init__(self, *args, replay_plan_path: str | None = None, **kwargs):
+            plan = load_plan(Path(replay_plan_path)) if replay_plan_path else None
             if plan is not None:
                 kwargs["student_max_turns"] = plan.max_turns
             super().__init__(*args, **kwargs)
@@ -170,30 +209,32 @@ def make_fork_agent_class():
 
         def build_graph(self, model, backend):
             plan = self._replay_plan
+            wrapped = AppWorldMinisweAgent.build_graph(self, model, backend)
             if plan is None:
-                return super().build_graph(model, backend)
-            graph = HarnessZeroMinisweAgent.build_graph(self, model, backend)
+                return wrapped
+            sequence = getattr(wrapped, "bound", wrapped)
+            appworld_initialize, inner_graph = sequence.first, sequence.last
+
+            async def execute(cmd: str) -> str:
+                result = await backend.aexecute(cmd)
+                return OBSERVATION_TEMPLATE.format(output=result.output,
+                                                   exit_code=result.exit_code)
 
             async def initialize(state):
-                task = await backend.aexecute("appworld task", timeout=60)
-                if getattr(task, "exit_code", 0) not in (0, None):
-                    raise RuntimeError("Failed to read public AppWorld task descriptor")
-                profile = await backend.aexecute(PROFILE_COMMAND, timeout=120)
-                digest = hashlib.sha256(
-                    (getattr(profile, "output", "") or "").encode()
-                ).hexdigest()
-                if plan.initial_context_sha256 and digest != plan.initial_context_sha256:
-                    # Prefer the artifact hash when the file is present in-container.
-                    pass
-                async def _exec(cmd: str) -> str:
-                    result = await backend.aexecute(cmd)
-                    output = getattr(result, "output", result)
-                    code = getattr(result, "exit_code", 0)
-                    return f"{output}\n[exit_code={code}]"
+                state = await appworld_initialize.ainvoke(state)
+                artifact_path = self.logs_dir / "appworld_initial_context.json"
+                artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+                if (plan.initial_context_sha256
+                        and artifact.get("sha256") != plan.initial_context_sha256):
+                    raise ReplayDiverged(0, plan.initial_context_sha256,
+                                         str(artifact.get("sha256")))
+                await replay_prefix(plan.commands, plan.expected_observations, execute)
+                if plan.full_replay:
+                    return state
+                return {**state, "messages": deserialize_messages(plan.message_prefix)}
 
-                await replay_prefix(plan.commands, plan.expected_observations, _exec)
-                return {**state, "messages": list(plan.message_prefix)}
-
-            return (RunnableLambda(initialize) | graph).with_config(graph.config)
+            if plan.full_replay:
+                return RunnableLambda(initialize).with_config(inner_graph.config)
+            return (RunnableLambda(initialize) | inner_graph).with_config(inner_graph.config)
 
     return ForkReplayAppWorldAgent
