@@ -1,11 +1,38 @@
-# Weekend 0 runbook (GCP only)
+# Weekend 0 runbook (Local Apple Silicon smoke test + GCP full W0)
 
-Goal: measure, then decide per `config/kill.toml`. No fork runner, guards, or training code
-until this passes. Everything raw goes under `runs/` / `jobs/` (gitignored, hook-blocked).
+Goal: measure, then decide per `config/kill.toml`. Everything raw goes under `runs/` / `jobs/` (gitignored, hook-blocked).
 
-Unverified against the Harness-Zero source (check `harness-zero run-rollout --help` first):
-- the flag that selects `PassthroughReviewer` (bare h, no teacher);
-- the test split filename (assumed `data/appworld-harbor/split_test168.txt`).
+Confirmed against Harness-Zero `a4a6223`:
+- passthrough (bare h): `--teacher-provider passthrough --teacher-model none --teacher-reasoning-effort none`
+- test split: `data/appworld-harbor/split_test168.txt`
+- student base URL: `--student-base-url http://<host>:8100/v1`
+- AppWorld agent/env: `--agent envs.appworld.agent:AppWorldMinisweAgent --env envs.appworld.harbor_environment:AppWorldDockerEnvironment`
+- h*: `--student-harness-dir harness_bank/appworld_student`
+
+## 0A. Local Mac Smoke Test (Apple Silicon GPU via `mlx-lm` + Docker Desktop, 1 task)
+
+Run 1 AppWorld task end-to-end on the local Mac (`M4 Pro 48GB`) to verify Docker images, proxy logging, Harbor verifier grading, guards, and the trajectory viewer before renting a GPU.
+
+```bash
+# 1. Start mlx_lm.server on port 8000 (4-bit Qwen3.5-4B on Apple GPU)
+uvx --from mlx-lm mlx_lm.server --model mlx-community/Qwen3.5-4B-4bit --port 8000
+
+# 2. Start GuardFork logging proxy on port 8100 (--backend mlx)
+uv run python -m guardfork.serve.proxy --upstream http://127.0.0.1:8000 --port 8100 \
+  --host 0.0.0.0 --backend mlx --log runs/proxy/local_smoke.jsonl --tag local_smoke
+
+# 3. Run 1 train task through Harness-Zero + AppWorldDockerEnvironment
+head -n 1 ../harness-zero/data/appworld-harbor/split_train147.txt > /tmp/smoke_task.txt
+cd ../harness-zero && uv run harness-zero run-rollout \
+  --dataset data/appworld-harbor/tasks \
+  --components harness_bank/appworld \
+  --tasks-file /tmp/smoke_task.txt --attempts 1 --concurrency 1 \
+  --student-model openai:mlx-community/Qwen3.5-4B-4bit \
+  --student-base-url http://127.0.0.1:8100/v1 \
+  --student-reasoning-effort high \
+  --teacher-provider passthrough --teacher-model none --teacher-reasoning-effort none \
+  --student-max-turns 15 --job-name local_smoke --output-dir ../guardfork/jobs
+```
 
 ## 0. VM setup (L4 spot, e.g. g2-standard-8)
 
@@ -42,7 +69,9 @@ harness-zero run-rollout --dataset data/appworld-harbor/tasks \
   --agent envs.appworld.agent:AppWorldMinisweAgent \
   --env envs.appworld.harbor_environment:AppWorldDockerEnvironment \
   --tasks-file data/appworld-harbor/split_test168.txt --attempts 1 --concurrency 8 \
-  --student-model openai:Qwen/Qwen3.5-9B <PASSTHROUGH_REVIEWER_FLAG> \
+  --student-model openai:Qwen/Qwen3.5-9B --student-base-url http://HOST:8100/v1 \
+  --student-reasoning-effort high --teacher-provider passthrough \
+  --teacher-model none --teacher-reasoning-effort none \
   --job-name k0_9b_seed0 --output-dir jobs
 uv run python scripts/measure_w0.py --title "K0 9B B0 test_normal" --k0 \
   --model Qwen/Qwen3.5-9B --jobs jobs/k0_9b_seed0 --proxy-log runs/proxy/k0.jsonl \

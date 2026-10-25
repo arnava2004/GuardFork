@@ -41,7 +41,7 @@ def test_detail_joins_everything(tmp_path, make_trial, event):
     (run,) = [r for r in index.runs() if r["id"] == "job0/trial0"]
     assert run["has_oracle"]
     d = index.detail("job0/trial0")
-    assert d["task"] == "do the task" and d["guards_available"] is False
+    assert d["task"] == "do the task" and d["guards_available"] is True
     t1, t2 = d["turns"]
     assert t1["observation"] == "file-list" and t2["observation"] is None
     assert t1["prompt_tokens"] == 3 and t1["latency_s"] == 1.5 and t2["prompt_tokens"] is None

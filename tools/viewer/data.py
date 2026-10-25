@@ -17,6 +17,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any
 
+from guardfork.fork.replay_checks import canonical_messages
 from guardfork.telemetry.proxy_log import ProxyRecord, iter_proxy_log
 from guardfork.telemetry.to_trajectory import message_text, to_trajectory
 from guardfork.telemetry.trials import TrialRecord, iter_trials
@@ -24,18 +25,20 @@ from guardfork.telemetry.trials import TrialRecord, iter_trials
 WINDOWS = (0, 1, 2, 3)
 
 
-def _conversation_key(texts: list[str]) -> str:
-    return hashlib.sha1("\x00".join(texts).encode("utf-8")).hexdigest()
+def _conversation_key(messages: list[dict[str, Any]]) -> str:
+    payload = json.dumps(canonical_messages(messages), ensure_ascii=False, sort_keys=True)
+    payload = payload.replace("[REDACTED]", "dummy")
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
 def _event_key(event: dict[str, Any]) -> str:
     msgs = ([event["system_message"]] if event.get("system_message") else []) + list(
         event.get("context") or [])
-    return _conversation_key([message_text(m) for m in msgs])
+    return _conversation_key(msgs)
 
 
 def _request_key(rec: ProxyRecord) -> str:
-    return _conversation_key([message_text(m) for m in rec.messages])
+    return _conversation_key(rec.messages)
 
 
 def _read_json(path: Path) -> Any:

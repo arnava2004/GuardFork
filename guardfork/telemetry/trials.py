@@ -161,7 +161,11 @@ def iter_trials(job_dir: Path, job: str | None = None) -> Iterator[TrialRecord]:
         yield record
     for result in sorted(job_dir.glob("**/result.json")):
         trial_dir = result.parent
-        if trial_dir.resolve() in seen or not (trial_dir / "config.json").is_file():
+        if (
+            trial_dir.resolve() in seen
+            or trial_dir.resolve() == job_dir.resolve()
+            or not (trial_dir / "config.json").is_file()
+        ):
             continue
         if "teacher" in trial_dir.parts:
             continue

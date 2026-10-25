@@ -24,8 +24,8 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not handwritten and not pending'"
 markers = [
-    "handwritten: specs for Arnav's hand-written modules; fail until implemented (run with -m handwritten)",
-    "pending: specs for agent-written W1-W4 stubs; fail until the W0 gate passes (run with -m pending)",
+    "handwritten: originally reserved for hand-written modules; now run by default",
+    "pending: originally reserved for W1-W4 stubs; now run by default",
+    "docker: requires AppWorld Harbor images; skipped unless images exist",
 ]

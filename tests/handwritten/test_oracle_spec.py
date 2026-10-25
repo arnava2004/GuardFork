@@ -4,11 +4,14 @@ import math
 
 import pytest
 
-from guardfork.fork.probe_plan import initial_probes
-from guardfork.stats.bootstrap import analytic_random_hit, clustered_bootstrap_ci, hit_minus_random
+from guardfork.fork.probe_plan import initial_probes, next_probe
+from guardfork.stats.bootstrap import (
+    analytic_random_hit,
+    clustered_bootstrap_ci,
+    hit_minus_random,
+    holm_adjust,
+)
 from guardfork.stats.oracle import argmax_drop_turn, derailment_turn, jeffreys_v1
-
-pytestmark = pytest.mark.handwritten
 
 
 def test_jeffreys():
@@ -56,3 +59,16 @@ def test_clustered_bootstrap_constant():
     mean, lo, hi = clustered_bootstrap_ci([0.5] * 6, ["a", "a", "b", "b", "c", "c"], n_boot=200)
     assert mean == lo == hi == 0.5
     assert not math.isnan(mean)
+
+
+def test_next_probe_bisects_crossing_gap():
+    values = {1: 0.6, 2: 0.6, 4: 0.1, 5: 0.0, 6: 0.0}
+    assert next_probe(values, v_s1=0.6, K=8, T=10) == 3
+    filled = {**values, 3: 0.35}
+    assert next_probe(filled, v_s1=0.6, K=8, T=10) is None
+
+
+def test_holm_adjust_monotone():
+    adj = holm_adjust([0.01, 0.04, 0.03])
+    assert adj[0] <= adj[2] <= adj[1]
+    assert adj[0] == pytest.approx(0.03)

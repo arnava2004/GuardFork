@@ -34,14 +34,31 @@ def _commit() -> str:
         return "uncommitted"
 
 
-def _k4_estimate(proxy) -> tuple[float | None, str]:
-    """Provisional K4: median prompt tokens over live turns that ended in a tool call
-    (non-terminal by construction). Swap for the first-non-terminal-guard turn once
-    guards/rules.py exists."""
-    vals = [p.prompt_tokens for p in proxy
-            if p.ok and p.prompt_tokens is not None and p.live_turn_index >= 0
-            and p.ended_with_tool_call]
-    note = "provisional: median over non-terminal live turns, guards not implemented"
+def _k4_estimate(trials, proxy) -> tuple[float | None, str]:
+    """Median prompt tokens at first non-terminal guard (g < T), or fallback over
+    non-terminal live turns if no non-terminal guard fired in the sample."""
+    from guardfork.guards.rules import evaluate, first_nonterminal
+    from guardfork.telemetry.to_trajectory import to_trajectory
+
+    guard_turn_indices: set[int] = set()
+    for t in trials:
+        traj = to_trajectory(t)
+        first = first_nonterminal(evaluate(traj), traj.T)
+        if first is not None:
+            guard_turn_indices.add(first.turn - 1)
+    if guard_turn_indices:
+        vals = [
+            p.prompt_tokens for p in proxy
+            if p.ok and p.prompt_tokens is not None and p.live_turn_index in guard_turn_indices
+        ]
+        if vals:
+            return statistics.median(vals), "median at first non-terminal guard turns"
+    vals = [
+        p.prompt_tokens for p in proxy
+        if p.ok and p.prompt_tokens is not None and p.live_turn_index >= 0
+        and p.ended_with_tool_call
+    ]
+    note = "fallback: median over non-terminal live turns (no non-terminal guard fired)"
     return (statistics.median(vals) if vals else None), note
 
 
@@ -62,7 +79,7 @@ def main() -> int:
     trials = [t for j in args.jobs for t in iter_trials(j)]
     proxy = list(iter_proxy_log(args.proxy_log)) if args.proxy_log else []
     summary = w0.summarize(trials, proxy, kill)
-    k4, k4_note = _k4_estimate(proxy)
+    k4, k4_note = _k4_estimate(trials, proxy)
     results = w0.evaluate_kill(summary, kill, is_k0_run=args.k0, k4_prompt_tokens=k4,
                                k4_note=k4_note)
     meta = {"commit": _commit(), "kill.toml sha256": kill.sha256[:12], "model": args.model,

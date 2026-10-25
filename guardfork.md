@@ -61,6 +61,19 @@ The "Rules for agents" section is mirrored in `AGENTS.md`. Kill thresholds live 
 
 Plain DPO is primary (length-normalized is an ablation). 2 training seeds for `GF-DPO` and the best baseline, 1 otherwise. Pairs must differ in AST API-call signature; pairs differing only in `<think>` are flagged.
 
+## Stretch: J-Lens Internal-State Localizer (After Q1 Numbers)
+
+Once Q1 produces failed trajectories with Monte Carlo oracle labels $t^\star$ and logged per-turn `prompt_token_ids` / `completion_token_ids`, evaluate a Jacobian-lens (`anthropics/jacobian-lens`, J-space global workspace) readout as a **third localizer** alongside free rule guards (`G1–G5`) and the expensive MC continuation oracle:
+
+| Localizer | Online / Offline Cost | Signal | Question |
+|---|---|---|---|
+| Deterministic guards (`G1–G5`) | 0 model calls | Action/observation symptoms (often late, e.g. loop at turn $g > t^\star$) | How close is $g$ to $t^\star$? |
+| **J-lens internal readout** | 1 offline forward pass over saved token IDs | Pre-verbal concept activations ("uncertainty", "stuck", constraint drift) at turn $t$ | Does J-space spike at $t^\star$ *before* any guard fires at $g$? |
+| Monte Carlo oracle | $\sim 5 \times K$ rollouts per failure | Continuation value collapse $\hat{V}(s_t) \to \hat{V}(s_{t+1})$ | Ground-truth derailment turn $t^\star$ |
+
+- **No changes to W0/Q1 data collection:** `guardfork/serve/proxy.py` already logs token IDs and full requests, so J-lens probing runs strictly offline on saved trajectories without re-running AppWorld containers.
+- **Model compatibility:** either fit a J-lens on `Qwen3.5-4B` or run a small matched rollout set on an open model with a pre-fitted public lens (`solarkyle/jspace-lenses`, e.g. `Gemma-4-E4B`). Do not start until Q1 has real numbers.
+
 ## Rules for Agents
 
-See `AGENTS.md` (authoritative copy).
+See `AGENTS.md` (authoritative copy). Agents may implement guards, oracle/statistics, fork selection, and losses; keep the spec tests passing. Split lock, no-API-teacher, no-raw-data, verifier, and W0 job-launch gates are unchanged.

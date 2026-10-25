@@ -1,12 +1,8 @@
 """Specs for guards/rules.py and fork/select.py (Arnav implements)."""
 
-import pytest
-
-from guardfork.fork.select import forkable_turns, guard_fork_turn
+from guardfork.fork.select import forkable_turns, guard_fork_turn, random_fork_turn
 from guardfork.guards.rules import Guard, GuardFiring, check_turn, evaluate, first_nonterminal
 from guardfork.types import ToolCall, Trajectory, TrajectoryStatus, Turn
-
-pytestmark = pytest.mark.handwritten
 
 
 def _turn(t: int, *, content="", reasoning="", command: str | None = "ls", invalid=(),
@@ -48,7 +44,9 @@ def test_g1_tool_markup_in_reasoning():
 
 def test_g2_loop_fires_on_third_identical_action_and_outcome():
     pay = "print(apis.venmo.create_transaction(receiver_email='r@x.com', amount=42))"
-    traj = _traj(_turn(1), _turn(2), _turn(3),
+    traj = _traj(_turn(1, command="print(apis.phone.search_contacts())"),
+                 _turn(2, command="print(apis.venmo.list_transactions())"),
+                 _turn(3, command="dinners = [t for t in page1 if 'dinner' in t['note']]"),
                  _turn(4, command=pay, observation="ok"),
                  _turn(5, command=pay, observation="ok"),
                  _turn(6, command=pay, observation="ok"),
@@ -106,3 +104,28 @@ def test_forkable_stops_after_session_reset_and_subagent():
 def test_guard_fork_turn_is_first_nonterminal_firing():
     traj = _traj(_turn(1), _turn(2, invalid=[{"e": 1}]), _turn(3), _turn(4, command=None))
     assert guard_fork_turn(traj, evaluate(traj)) == 2
+
+
+def test_g3_http_error():
+    t = _turn(1, observation="HTTP 404 not found")
+    assert Guard.G3_FAILED_PRECONDITION in _guards((t,), _traj(t))
+
+
+def test_g4_outside_allowed_app():
+    t = _turn(1, command="print(apis.spotify.play_song(id=1))")
+    traj = Trajectory("aaaaaaa_1", (t,), 0.0, TrajectoryStatus.FAILED,
+                      allowed_apps=frozenset({"venmo", "phone"}))
+    assert Guard.G4_CONSTRAINT_VIOLATION in _guards((t,), traj)
+
+
+def test_g5_done_without_tool_call():
+    t = _turn(1, command=None, content="Done!")
+    assert Guard.G5_UNVERIFIED_COMPLETION in _guards((t,), _traj(t))
+
+
+def test_random_fork_turn_is_forkable_and_deterministic():
+    import random
+    traj = _traj(_turn(1), _turn(2), _turn(3), _turn(4))
+    a = random_fork_turn(traj, random.Random(0))
+    b = random_fork_turn(traj, random.Random(0))
+    assert a == b and a in forkable_turns(traj)

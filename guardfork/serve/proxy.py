@@ -35,6 +35,8 @@ def inject_request_fields(body: dict[str, Any], backend: str) -> dict[str, Any]:
     out.setdefault("logprobs", True)
     if backend == "vllm":
         out.setdefault("return_token_ids", True)
+    elif backend == "mlx" and "max_completion_tokens" not in out:
+        out.setdefault("max_tokens", 4096)
     return out
 
 
@@ -51,15 +53,18 @@ def extract_response_fields(resp: dict[str, Any]) -> dict[str, Any]:
     for ch in choices:
         if not isinstance(ch, dict):
             continue
-        completion_ids.append(ch.get("token_ids"))
+        tok_ids = ch.get("token_ids")
         finish.append(ch.get("finish_reason"))
         lp = ch.get("logprobs")
         if isinstance(lp, dict) and isinstance(lp.get("content"), list):
             logprobs.append([t.get("logprob") for t in lp["content"] if isinstance(t, dict)])
+            if tok_ids is None and all(isinstance(t, dict) and "id" in t for t in lp["content"]):
+                tok_ids = [t["id"] for t in lp["content"]]
         elif isinstance(lp, dict) and isinstance(lp.get("token_logprobs"), list):
             logprobs.append(lp["token_logprobs"])
         else:
             logprobs.append(None)
+        completion_ids.append(tok_ids)
     prompt_ids = resp.get("prompt_token_ids")
     if prompt_ids is None and choices and isinstance(choices[0], dict):
         prompt_ids = choices[0].get("prompt_token_ids")

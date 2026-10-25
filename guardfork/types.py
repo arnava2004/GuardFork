@@ -56,6 +56,7 @@ class Trajectory:
     status: TrajectoryStatus
     allowed_apps: frozenset[str] = field(default_factory=frozenset)
     completion_status: bool | None = None
+    initial_context: str = ""
 
     @property
     def T(self) -> int:  # noqa: N802

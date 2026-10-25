@@ -4,8 +4,6 @@ import pytest
 
 from guardfork.train.losses import dpo_loss
 
-pytestmark = pytest.mark.handwritten
-
 
 def test_dpo_zero_margin_is_log2():
     assert dpo_loss(0.0, 0.0, 0.0, 0.0) == pytest.approx(math.log(2))
