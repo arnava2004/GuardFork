@@ -125,3 +125,48 @@ the plan's rule applies (switch to SpreadsheetBench Verified). The Monte Carlo r
   dev-set decision (no leakage).
 - Referee concurrency: if tonight's screen shows timeouts or slow (crawling, not looping) 40-turn
   runs, run the referee at concurrency 2.
+
+### 2026-10-25 9B-4bit sampled screen: 125 non-dev train147 tasks x 2 seeds (`w0-screen-9b-t06-s12`)
+
+- 250 trials: 105 passed, 110 failed, 35 hit the 40-turn limit. TGC 42.0 (seed 1 41.6, seed 2 42.4).
+- **SGC per seed: 22.0 and 14.6 over 41 scenarios (mean 18.3).** Train147, 4-bit MLX, so not a K0
+  number; but it rules out a 3x-inflated baseline (the earlier 78.6% was the greedy artifact).
+  Harness-Zero reports 26.8 bare-h SGC on test_normal.
+- Per-task passes of 2: 0/2 = 51, 1/2 = 43, 2/2 = 31. 43/125 (34%) mixed at 2 seeds; K1 (>= 20% of
+  tasks in [0.2, 0.8] at >= 8 samples) not measurable yet but promising.
+- K2 PASS (0.5% of 5864 turns, all candidate_issue). K3 PASS ($122 projected). **K4 FAIL**: median
+  prompt tokens at first non-terminal guard 10,382 > 8,192 -> train on Lambda, not the Mac (planned).
+- Wall p50/p95 264 / 704 s. Turn-limit runs: wall p50 490 s, max 1844 s (check the slowest for
+  swap-crawl before the referee; drop referee concurrency to 2 if any look like crawling).
+- measure_w0 fixed: SGC is now per seed (job x attempt) and K1 reports "not measurable" below 8
+  samples instead of FAIL.
+
+### 2026-10-25 9B-4bit sampled screen: 125 non-dev train147 tasks x 2 seeds (`w0-screen-9b-t06-s12`)
+
+- 250 trials: 105 passed, 110 failed, 35 hit the 40-turn limit. TGC 42.0 (seed 1 41.6, seed 2 42.4).
+- **SGC per seed: 22.0 and 14.6 over 41 scenarios (mean 18.3).** Train147, 4-bit MLX, so not a K0
+  number; but it rules out a 3x-inflated baseline (the earlier 78.6% was the greedy artifact).
+  Harness-Zero reports 26.8 bare-h SGC on test_normal.
+- Per-task passes of 2: 0/2 = 51, 1/2 = 43, 2/2 = 31. 43/125 (34%) mixed at 2 seeds; K1 (>= 20% of
+  tasks in [0.2, 0.8] at >= 8 samples) not measurable yet but promising.
+- K2 PASS (0.5% of 5864 turns, all candidate_issue). K3 PASS ($122 projected). **K4 FAIL**: median
+  prompt tokens at first non-terminal guard 10,382 > 8,192 -> train on Lambda, not the Mac (planned).
+- Wall p50/p95 264 / 704 s. Turn-limit runs: wall p50 490 s, max 1844 s (check the slowest for
+  swap-crawl before the referee; drop referee concurrency to 2 if any look like crawling).
+- measure_w0 fixed: SGC is now per seed (job x attempt) and K1 reports "not measurable" below 8
+  samples instead of FAIL.
+
+### 2026-10-25 9B-4bit sampled screen: 125 non-dev train147 tasks x 2 seeds (`w0-screen-9b-t06-s12`)
+
+- 250 trials: 105 passed, 110 failed, 35 hit the 40-turn limit. TGC 42.0 (seed 1 41.6, seed 2 42.4).
+- **SGC per seed: 22.0 and 14.6 over 41 scenarios (mean 18.3).** Train147, 4-bit MLX, so not a K0
+  number; but it rules out a 3x-inflated baseline (the earlier 78.6% was the greedy artifact).
+  Harness-Zero reports 26.8 bare-h SGC on test_normal.
+- Per-task passes of 2: 0/2 = 51, 1/2 = 43, 2/2 = 31. 43/125 (34%) mixed at 2 seeds; K1 (>= 20% of
+  tasks in [0.2, 0.8] at >= 8 samples) not measurable yet but promising.
+- K2 PASS (0.5% of 5864 turns, all candidate_issue). K3 PASS ($122 projected). **K4 FAIL**: median
+  prompt tokens at first non-terminal guard 10,382 > 8,192 -> train on Lambda, not the Mac (planned).
+- Wall p50/p95 264 / 704 s. Turn-limit runs: wall p50 490 s, max 1844 s (check the slowest for
+  swap-crawl before the referee; drop referee concurrency to 2 if any look like crawling).
+- measure_w0 fixed: SGC is now per seed (job x attempt) and K1 reports "not measurable" below 8
+  samples instead of FAIL.
