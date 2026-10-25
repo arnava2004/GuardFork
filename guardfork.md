@@ -45,6 +45,15 @@ Arnav fills the blanks below (and the per-guard / no-G3 expectations) before `sc
 - **Mac (M4 Pro 48 GB, `mlx_lm.server`, 4-bit, arm64 AppWorld images):** pipeline checks, train147 pass-band screens, dev-set work, human failure labels, the LLM-judge baseline, the DPO plumbing dry run, and a 2-failure referee smoke test at K=4 to price the GPU run. Not used for K0 or any headline number.
 - **Lambda GPU VMs (vLLM, full-precision weights, amd64 images rebuilt on the VM):** K0 anchor (9B B0 on test_normal), the Q1 referee at scale (~6000 episodes, ~130 h on the Mac), training arms, and 5-seed test_normal evals. GCP is the fallback. Same `config/sampling.toml` through the same proxy on both machines; one serving stack per machine.
 
+## Model Lineup (budget-ordered)
+
+- **Core, trained with all 5 arms (Lambda, bf16):** `Qwen/Qwen3.5-9B`. Harness-Zero's base model, so it is the headline and the direct comparison.
+- **Cross-family control, trained with GF-DPO + the best baseline (Lambda):** one non-Qwen model with a public J-lens, chosen by a 10-task K2 (tool-call parse) smoke test: `mistral-small-24b-instruct-2501` or `openai/gpt-oss-20b`.
+- **If budget remains:** `Qwen/Qwen3.5-4B` with all arms (the weak-model point).
+- **Q1 only (rollouts + guards + referee subset, no training):** a scaling ladder `Qwen3.5-2B -> 4B -> 9B -> 27B or 35B-A3B`, reported as descriptive failure-mode shifts per guard type.
+- **J-lens stretch (offline readout over saved runs, after Q1 numbers):** lens models only (`qwen3.6-27b`, `gpt-oss-20b`, `mistral-small-24b`; Gemma 4 lenses also exist, pending the outside-work check on using Google-released weights). A lens only reads its own model's activations, so the lens model needs its own AppWorld rollouts and referee labels.
+- **Mac:** 4B/9B 4-bit for screens, dev work, and the LoRA DPO dry run; a lens-model plumbing smoke test (rollouts on ~10 dev tasks for K2, then the lens on 2 saved failures) once the overnight jobs finish.
+
 ## Known Deviations from Harness-Zero (methods section)
 
 - **Sampling:** Harness-Zero's repo does not specify student sampling, and its client sends none. We fix sampling in `config/sampling.toml` (Qwen3.5 thinking-mode coding: temperature 0.6, top_p 0.95, top_k 20), injected by the proxy with a logged per-request seed. Our baseline therefore cannot be guaranteed to match their 26.8 SGC; we report the difference rather than tune toward it (or confirm their settings with the authors).
