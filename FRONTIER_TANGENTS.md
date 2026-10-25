@@ -52,6 +52,13 @@ What we do instead, at zero extra container cost once the oracle table exists:
    one-paragraph offline abort estimate ("aborting when P(t\* ≤ t) > 0.9 saves X% of continuation
    tokens at 95% recall").
 
+Implementation notes (agent, commit `c6f241a`): `elpo_bel`, `c3_rule_flip` and `open_judge`
+in `guardfork/q1/simulate_search.py` / `guardfork/train/credit.py` are simplified stand-ins and
+must be checked against ELPO 2602.09598, C³ 2610.19695 and ECHO 2610.16027 before any table
+calls them by those names. `entropy_peak` uses sampled-token surprisal (the proxy logs no
+top-k logprobs), not full-distribution entropy. `bisection_early_stop` stops early only on the
+collapsed side; stopping on unanimous-alive half-samples inflated V̂ in simulation.
+
 Ownership: Arnav hand-writes `guardfork/stats/bayes_prior.py` (change-point oracle, Laplace
 guard prior, sequential Beta stopping, next-probe choice). Agents write stubs, the simulator,
 credit/triage scaffolding and tests.
