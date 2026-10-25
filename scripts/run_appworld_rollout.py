@@ -44,21 +44,22 @@ def build_harbor_command(
     student_harness_dir: str | None = None,
     agent_import_path: str = "envs.appworld.agent:AppWorldMinisweAgent",
     replay_plan_path: Path | None = None,
+    student_timeout: float | None = 600.0,
 ) -> list[str]:
     if replay_plan_path is not None:
         agent_import_path = FORK_AGENT
     harbor = hz_root / ".venv" / "bin" / "harbor"
     dataset = hz_root / "data" / "appworld-harbor" / "tasks"
     components = hz_root / "harness_bank" / "empty"
-    model_kwargs = json.dumps(
-        {
-            "base_url": student_base_url,
-            "api_key": "guardfork-local-gateway-token",
-            "use_responses_api": False,
-            "reasoning_effort": student_reasoning_effort,
-        },
-        separators=(",", ":"),
-    )
+    student_kwargs: dict = {
+        "base_url": student_base_url,
+        "api_key": "guardfork-local-gateway-token",
+        "use_responses_api": False,
+        "reasoning_effort": student_reasoning_effort,
+    }
+    if student_timeout is not None:
+        student_kwargs["timeout"] = student_timeout
+    model_kwargs = json.dumps(student_kwargs, separators=(",", ":"))
     cmd = [
         str(harbor),
         "run",
@@ -132,6 +133,9 @@ def main() -> int:
     ap.add_argument("--student-harness-dir", default=None)
     ap.add_argument("--replay-plan", type=Path, default=None,
                     help="ReplayPlan JSON; runs ForkReplayAppWorldAgent on the plan's task")
+    ap.add_argument("--student-timeout", type=float, default=600.0,
+                    help="per-request client timeout in seconds (Harness-Zero's own default "
+                         "of 120 s kills long 9B reasoning turns)")
     ap.add_argument("--job-name", required=True)
     ap.add_argument("--output-dir", type=Path,
                     default=Path(__file__).resolve().parents[1] / "jobs")
@@ -163,6 +167,7 @@ def main() -> int:
         concurrency=args.concurrency,
         student_harness_dir=args.student_harness_dir,
         replay_plan_path=args.replay_plan.resolve() if args.replay_plan else None,
+        student_timeout=args.student_timeout,
     )
     return subprocess.run(cmd, cwd=hz_root, env=env, check=False).returncode
 

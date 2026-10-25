@@ -111,7 +111,8 @@ def main() -> int:
     row("trials (seeds per task)", f"{a['n']} ({a['n_seeds']})", f"{b['n']} ({b['n_seeds']})")
     row("per-task passes", hist(a), hist(b))
     row(f"K1 share, p_hat in [{band[0]}, {band[1]}]",
-        f"{a['k1_n']}/{a['n_tasks']} = {a['k1']:.2f}", f"{b['k1_n']}/{b['n_tasks']} = {b['k1']:.2f}")
+        f"{a['k1_n']}/{a['n_tasks']} = {a['k1']:.2f}",
+        f"{b['k1_n']}/{b['n_tasks']} = {b['k1']:.2f}")
     row("TGC (sanity only)", f"{a['tgc']:.1f}", f"{b['tgc']:.1f}")
     row("parse failures, % of turns", f"{a['parse']:.1f} of {a['n_turns']}",
         f"{b['parse']:.1f} of {b['n_turns']}")
