@@ -8,7 +8,20 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 MODEL="openai:mlx-community/Qwen3.5-9B-4bit"
 
-curl -sf -o /dev/null http://127.0.0.1:8100/v1/models || { echo "proxy not up on :8100"; exit 1; }
+curl -sf -o /dev/null http://127.0.0.1:8000/v1/models || {
+  echo "mlx_lm.server not up on :8000; start it first:"
+  echo "  uvx --from mlx-lm mlx_lm.server --model mlx-community/Qwen3.5-9B-4bit --port 8000 --max-tokens 4096"
+  exit 1
+}
+if ! curl -sf -o /dev/null http://127.0.0.1:8100/v1/models; then
+  nohup uv run python -m guardfork.serve.proxy --upstream http://127.0.0.1:8000 --port 8100 \
+    --host 0.0.0.0 --backend mlx --sampling-config config/sampling.toml \
+    --log runs/proxy/mlx_9b_t06.jsonl --tag mlx_9b_t06 >> runs/proxy/proxy_t06.out 2>&1 &
+  disown
+  sleep 5
+  curl -sf -o /dev/null http://127.0.0.1:8100/v1/models || { echo "proxy failed to start"; exit 1; }
+  echo "$(date) proxy started from config/sampling.toml"
+fi
 
 round=1
 while true; do
