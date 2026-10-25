@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Never committed: raw rollouts, forks, teacher artifacts, AppWorld data.
+runs/
+results/
+forks/
+teacher/
+jobs/
+data/appworld/
+appworld_initial_context.json
+*.tar
+*.jsonl
+.env

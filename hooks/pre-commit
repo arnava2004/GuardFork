@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Blocks raw rollouts, forks, teacher artifacts and AppWorld task data from git.
+# Install: git config core.hooksPath hooks
+set -euo pipefail
+
+blocked_path_re='(^|/)(runs|results|forks|teacher|jobs)/|(^|/)appworld_initial_context\.json$|\.tar$|\.jsonl$|^data/appworld/'
+# Markers that only appear in AppWorld task prompts / harness transcripts.
+blocked_text_re='\[APPWORLD_CURRENT_TASK\]|apis\.supervisor\.complete_task|appworld_initial_context|"supervisor":\s*\{'
+
+status=0
+files=$(git diff --cached --name-only --diff-filter=ACMR)
+[ -z "$files" ] && exit 0
+
+while IFS= read -r f; do
+  if [[ "$f" =~ $blocked_path_re ]]; then
+    echo "pre-commit: blocked path: $f" >&2
+    status=1
+    continue
+  fi
+  case "$f" in
+    hooks/pre-commit|.gitignore|AGENTS.md|guardfork.md|NOTES.md|tests/test_precommit_hook.py)
+      continue ;;
+  esac
+  if git show ":$f" 2>/dev/null | LC_ALL=C grep -Eq "$blocked_text_re"; then
+    echo "pre-commit: AppWorld task text detected in: $f" >&2
+    status=1
+  fi
+done <<< "$files"
+
+if [ $status -ne 0 ]; then
+  echo "pre-commit: refusing commit (see AGENTS.md rule 4)." >&2
+fi
+exit $status

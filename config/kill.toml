@@ -1,0 +1,31 @@
+# Kill criteria. Read by scripts/measure_w0.py (weekend_0) and scripts/run_pilot.py (weekend_1_pilot).
+# Change a threshold only with a dated entry in NOTES.md explaining why.
+
+[weekend_0]
+# Run FIRST. Outside this range means the setup is wrong, not the model.
+K0_9b_b0_test_normal_sgc_range = [18.0, 36.0]
+# Share of train147 tasks with p_hat in [0.2, 0.8] over >= 8 samples.
+# 4B below -> switch to 9B; 9B below -> switch to SpreadsheetBench Verified.
+K1_min_pass_band_fraction = 0.20
+K1_pass_band = [0.2, 0.8]
+K1_min_samples_per_task = 8
+# Per-turn rate of invalid_tool_calls / unparsed tool markup in visible content.
+K2_max_parse_failure_rate_per_turn = 0.10
+# (measured env-seconds + GPU-h per episode) x full Q1+Q2 plan.
+K3_max_projected_q1_q2_cost_usd = 400.0
+# Median prompt tokens at first non-terminal guard; above -> train 4B on GPU spot, not Mac.
+K4_max_mac_prompt_tokens_at_nonterminal_guard = 8192
+
+[weekend_1_pilot]
+W1a_min_replayable_fraction = 0.85
+W1b_min_nonterminal_guard_coverage = 0.40
+W1c_min_value_drop_ci_lower_bound = 0.0
+W1d_min_recoverable_guard_states = 0.30
+W1e_min_oracle_test_retest_pm1 = 0.60
+
+# Inputs for the K3 projection. Edit to the actual GCP quote before running measure_w0.py.
+[cost]
+gpu_usd_per_hour = 0.70          # L4 spot, approximate
+episodes_per_gpu_concurrently = 8
+planned_q1_episodes = 6000       # ~90 runs x ~8 probe states x K=8, plus ceiling runs
+planned_q2_episodes = 9000       # shared pool + fork continuations + 5-seed evals
