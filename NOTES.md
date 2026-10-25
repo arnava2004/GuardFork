@@ -34,4 +34,19 @@ Dated log of measurements and go/no-go decisions. `scripts/measure_w0.py --notes
   exact observation equality on every replayed command, initial-context sha256 matched every time.
 - Fork smoke (passed run, fork at t=6, K=1): seeded 33-message prefix, continued 9 turns, reward 1.0.
 - Guard fork (failed `302c169_2` seed, 40-turn failure, first non-terminal guard G3 at t=3, K=2):
-  both continuations passed (2/2). State s_3 was recoverable; the original went wrong at/after t=3.
+  both continuations passed (2/2). **Pipeline check only, not localization evidence:** this task is
+  mixed from s_1 (1/2 base passes), so 2/2 from s_3 is roughly what we'd expect even if nothing broke
+  at t=3. Localization needs V(s_1) vs V(s_{g+1}) at K=8 (the referee), on fresh runs.
+
+### 2026-10-25 Guard freeze and dev/eval split
+
+- Guards frozen as `guards-v1` (git tag; `config/guards_freeze.toml` pins the source sha256;
+  `tests/test_guards_freeze.py` fails on any edit without a version bump).
+- Dev set = everything v1 was tuned/debugged on (`config/dev_set.toml`: the 21 mini-screen tasks +
+  `07b42fd_1`, and the mini-screen/smoke jobs). Q1 eligibility excludes these tasks and jobs.
+- Q1 is evaluated only on fresh failed runs of non-dev tasks. Any later rule change is v2, reported
+  separately, never re-scored on v1's eval runs as if it were v1.
+- G3 dominates first firings on the dev runs (mostly API auth errors at turns 3-5). Report per guard,
+  with G3 excluded, and with "unrecovered G3" (no api_docs read or login within 2 turns).
+- The guard-vs-pass/fail firing-rate gap on dev runs (failed runs fire more often) is not the Q1
+  claim and is based on only 10 passed runs; Q1 is whether g lands near t*.

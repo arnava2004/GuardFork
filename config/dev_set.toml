@@ -1,0 +1,22 @@
+# Dev set: everything guards-v1 was tuned or debugged on. Q1 evaluation must use
+# fresh failed runs on tasks outside this list; any rule change after the freeze is a new
+# guards version, reported separately.
+
+dev_jobs = [
+  "mac-oracle-smoke",
+  "mlx-4b-smoke-07b42fd_1",
+  "w0-mini-4b-mlx",
+  "w0-mini-9b-mlx",
+  "w0-mini-9b-mlx-s34",
+]
+
+dev_tasks = [
+  "07b42fd_1",
+  "0d8a4ee_1", "0d8a4ee_2", "0d8a4ee_3",
+  "22cc237_1", "22cc237_2", "22cc237_3",
+  "23cf851_1", "23cf851_2", "23cf851_3",
+  "27e1026_1", "27e1026_2", "27e1026_3",
+  "287e338_1", "287e338_2", "287e338_3",
+  "2a163ab_1", "2a163ab_2", "2a163ab_3",
+  "302c169_1", "302c169_2", "302c169_3",
+]

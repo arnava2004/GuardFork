@@ -14,7 +14,9 @@ The "Rules for agents" section is mirrored in `AGENTS.md`. Kill thresholds live 
 - **Prior deterministic signals are not evaluated as error-avoidance fork localizers:** Fission-GRPO (2601.15625) branches *after* an execution error with injected error feedback to train *recovery*; DepGPO (2610.03634) traces command dependencies from the verifier's read set; 2610.11655 uses first-firing signals (F1–F4) to label whole trajectories for SFT and explicitly declines RL ("the route we do not take"); HarnessRL (2610.26426) applies trajectory/turn penalties without same-state counterfactual forking.
 - **Defensible claim:** To our knowledge, no prior work evaluates verifier-free deterministic harness guards as fork-point localizers for same-state error-avoidance preference pairs against a reliability-bounded Monte Carlo value oracle, or isolates guard-as-localizer (`GF-DPO`) against guard-as-reward (`G-REW`) and random-turn forking (`R-FORK-DPO`) under a matched offline rollout budget.
 
-## Pre-Registered Predictions & MDEs (lock numbers before Weekend 2)
+## Pre-Registered Predictions & MDEs (lock numbers before the first referee run on fresh runs)
+
+Arnav fills the blanks below (and the per-guard / no-G3 expectations) before `scripts/run_referee.py` runs on non-dev tasks; commit them so the timestamp precedes the results.
 
 1. **P1 — Non-terminal localization (w = 1 primary):** On n ∈ [80, 100] eligible failed trajectories (p_task ∈ [0.3, 0.8]) with a non-terminal guard firing (g < T) and defined t*, Hit(w=1) = Pr(|g − t*| ≤ 1) exceeds analytic random E[Hit_rand(w=1)] by __ pp (scenario-clustered bootstrap; 80%-power MDE ≈ 16–20 pp at n = 90). Report w ∈ {0, 1, 2, 3} alongside the 15–25-run oracle test-retest ceiling and its 95% CI.
 2. **P2 — Pair yield & cost per usable pair:** Guard forking yields __ usable AST-distinct preference pairs per failed run at 1×K continuations per failure, at __× lower rollout-token and env-second cost per usable pair than MC probe localization (~5×K per failure) and __× higher usable-pair yield than random-turn forking (1×K per failure).
@@ -45,6 +47,8 @@ The "Rules for agents" section is mirrored in `AGENTS.md`. Kill thresholds live 
   - Eligible failed runs: tasks with p̂_task ∈ [0.3, 0.8] (≥ 8 base rollouts; Jeffreys-smoothed Ṽ(s₁)).
   - Probes at {0, g−3, g−1, g, g+1} around the first non-terminal guard g < T, plus bisection to adjacency, K = 8 Harbor trials per probed state.
   - t* = min{t ∈ 1..T : V̂(s_{t+1}) ≤ 0.5·Ṽ(s₁) ∧ V̂(s_t) − V̂(s_{t+1}) ≥ 2/K}, with V̂(s_{T+1}) ≡ R(τ) = 0. If no adjacent probed pair qualifies, t* is undefined: excluded, rate reported, sensitivity = argmax drop over probed adjacent pairs.
+- **Guard freeze & dev/eval separation:** guards are frozen as `guards-v1` before any Q1 number (`config/guards_freeze.toml`, enforced by `tests/test_guards_freeze.py`). Runs and tasks used to tune or debug them are the dev set (`config/dev_set.toml`) and are excluded from Q1. Q1 uses only fresh failed runs on non-dev tasks; later rule changes are new versions reported separately.
+- **Guard-type robustness (pre-registered):** G3 (API auth/precondition errors) dominates first firings on dev runs. Report Hit(w) per guard type, with G3 excluded (`no_g3`), and with an "unrecovered G3" variant (a G3 firing counts only if the next 2 turns neither read API docs nor log in), so the result is not just one AppWorld quirk.
 - **Inference:** d_i(w) = 𝟙(|g_i − t*_i| ≤ w) − |{t ∈ [1, T_i − 1] : |t − t*_i| ≤ w}| / (T_i − 1); test E[d(w)] > 0 with a scenario-clustered bootstrap (McNemar secondary). Non-terminal firings (g < T) are the headline; terminal firings get their own column. Any guard firing on > 30% of PASSED runs is excluded from defining process failures.
 
 ## Offline Training Arms (matched rollout pool, Weekends 5–7)

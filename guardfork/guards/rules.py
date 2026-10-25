@@ -9,6 +9,7 @@ from enum import StrEnum
 from guardfork.guards.ast_sig import api_signature, is_read, is_write
 from guardfork.types import N_DEMO_ASSISTANT_TURNS, Trajectory, Turn
 
+GUARDS_VERSION = "v1"
 CODE_FENCE = "```"
 APPWORLD_EXEC = "appworld exec"
 TOOL_MARKUP = ("<tool_call>", "<function=")

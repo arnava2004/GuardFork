@@ -1,0 +1,9 @@
+# Frozen guard versions: sha256 over guardfork/guards/rules.py + ast_sig.py
+# (guardfork.freeze.guard_sources_sha256). Editing either file fails
+# tests/test_guards_freeze.py until a new version is added here and GUARDS_VERSION is
+# bumped. Q1 results are reported per version; v1 was tuned on config/dev_set.toml only.
+
+[versions.v1]
+sha256 = "87abe19e982e51b70d018f7c86645c44fd9d5321ac4dd911b619dd56c88ac668"
+frozen = "2026-10-25"
+tuned_on = "config/dev_set.toml"
