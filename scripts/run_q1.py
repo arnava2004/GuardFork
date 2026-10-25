@@ -33,11 +33,13 @@ def main() -> int:
     ap.add_argument("--report", type=Path, default=Path("results/q1/report.md"))
     ap.add_argument("--oracle-json", type=Path, required=True)
     ap.add_argument("--window", type=int, default=1, help="primary localization window")
+    ap.add_argument("--judge-root", type=Path, default=Path("results"),
+                    help="reads <judge-root>/<job>/<trial>/judge.json for the judge row")
     args = ap.parse_args()
     records = [t for j in args.base_jobs for t in iter_trials(j)]
     eligible = eligible_failed_runs(records, per_task_pass(records))[: args.n_runs]
     oracle = json.loads(args.oracle_json.read_text())
-    rows = build_rows(eligible, oracle)
+    rows = build_rows(eligible, oracle, judge_root=args.judge_root)
     table = report_table(rows)
     comparable = [r for r in rows if r.g is not None and r.t_star is not None]
     if comparable:

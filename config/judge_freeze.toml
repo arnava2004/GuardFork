@@ -1,0 +1,16 @@
+# Pinned LLM-judge prompt versions: sha256 of config/judge_prompt.md
+# (guardfork.judge.prompt_sha256). tests/test_judge_freeze.py fails when the template no
+# longer matches the entry for guardfork.judge.JUDGE_VERSION.
+#
+# Workflow: while status = "draft", debug the template on dev-set failures only
+# (scripts/llm_judge.py --dev-only) and update sha256 here after each edit. Then set
+# status = "frozen" and the date; scripts/llm_judge.py refuses non-dev trials until the
+# current template matches a frozen entry. After freezing, any edit is a new version (bump
+# JUDGE_VERSION, add a new table) and its results are reported separately.
+
+[versions.v1]
+sha256 = "7b4ed0121a6816a9fb55b7358236b010cb129c50ad83970f6bc1e563991f5cf1"
+status = "draft"
+frozen = ""
+model = "mlx-community/Qwen3-30B-A3B-4bit"
+tuned_on = "config/dev_set.toml"

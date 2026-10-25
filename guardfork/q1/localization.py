@@ -2,13 +2,16 @@
 
 Rows carry several guard localizers so the report can show results per guard type,
 with G3 excluded, and with a stricter "unrecovered G3" (an API-error firing counts only if
-the next RECOVERY_WINDOW turns do not read API docs or log in).
+the next RECOVERY_WINDOW turns do not read API docs or log in), plus the zero-rollout
+LLM-judge baseline (`judge`, any turn 1..T, from judge.json).
 """
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from guardfork.freeze import DevSet
 from guardfork.guards.rules import GUARDS_VERSION, Guard, GuardFiring, evaluate
@@ -20,7 +23,7 @@ from guardfork.types import Trajectory
 
 RECOVERY_WINDOW = 2
 RECOVERY_RE = re.compile(r"apis\.api_docs\.|appworld\s+docs|apis\.\w+\.login\s*\(")
-LOCALIZERS = ("all", "no_g3", "g3_unrecovered", *(g.value for g in Guard))
+LOCALIZERS = ("all", "no_g3", "g3_unrecovered", *(g.value for g in Guard), "judge")
 
 
 @dataclass(frozen=True)
@@ -79,13 +82,33 @@ def localizer_turns(traj: Trajectory, firings: list[GuardFiring]) -> dict[str, i
     return out
 
 
-def build_rows(records: list[TrialRecord], oracle_results: dict[str, dict]) -> list[Q1Row]:
+def _judge_turn(rec: TrialRecord, trial_id: str, judge_results: dict[str, dict] | None,
+                judge_root: Path | None) -> int | None:
+    entry = None
+    if judge_results is not None:
+        entry = judge_results.get(trial_id) or judge_results.get(rec.trial_dir.name)
+    if entry is None and judge_root is not None:
+        path = judge_root / rec.job / rec.trial_dir.name / "judge.json"
+        if path.is_file():
+            entry = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(entry, dict):
+        turn = entry.get("turn")
+        return turn if isinstance(turn, int) and not isinstance(turn, bool) else None
+    return entry if isinstance(entry, int) and not isinstance(entry, bool) else None
+
+
+def build_rows(records: list[TrialRecord], oracle_results: dict[str, dict],
+               judge_results: dict[str, dict] | None = None,
+               judge_root: Path | None = None) -> list[Q1Row]:
+    """`judge_results` maps trial_id (or trial dir name) to judge.json contents (or a turn);
+    otherwise `judge_root/<job>/<trial>/judge.json` is read when given."""
     rows = []
     for rec in records:
         traj = to_trajectory(rec)
         trial_id = f"{rec.job}/{rec.trial_dir.name}"
         firings = evaluate(traj)
         loc = localizer_turns(traj, firings)
+        loc["judge"] = _judge_turn(rec, trial_id, judge_results, judge_root)
         terminal_only = loc["all"] is None and any(f.turn == traj.T for f in firings)
         oracle = oracle_results.get(trial_id) or oracle_results.get(rec.trial_dir.name) or {}
         rows.append(Q1Row(
@@ -116,7 +139,7 @@ def _hit_rows(rows: list[Q1Row], localizer: str, windows: tuple[int, ...]) -> li
 
 def report_table(rows: list[Q1Row], windows: tuple[int, ...] = (0, 1, 2, 3)) -> str:
     """Markdown: non-terminal headline, terminal column, undefined-t* rate, Hit(w) per w,
-    then the same per localizer (all, no_g3, g3_unrecovered, G1..G5)."""
+    then the same per localizer (all, no_g3, g3_unrecovered, G1..G5, judge)."""
     n = len(rows)
     undefined = sum(r.t_star is None for r in rows)
     headline = [r for r in rows if r.g is not None and r.t_star is not None]
