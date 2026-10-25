@@ -1,22 +1,31 @@
-# Dev set: everything guards-v1 was tuned or debugged on. Q1 evaluation must use
-# fresh failed runs on tasks outside this list; any rule change after the freeze is a new
-# guards version, reported separately.
+# Design / evaluation split over the 49 train147 scenarios (147 tasks). Scenario-level, so
+# no task shares a scenario across the two sides.
+#
+# Design (15 scenarios, 45 tasks): everything guards-v1 was tuned or debugged on (8 touched
+# scenarios; 6 of them carry the official "train" tag, so the official dev/train tags are NOT a
+# leak-free split) plus 7 untouched official-dev scenarios chosen by salted hash
+# ("guardfork-design-v2", referee-smoke scenarios protected). Used for guard tuning, judge
+# prompt tuning, Laplace-lag calibration, thresholds.
+# Evaluation (34 scenarios, 102 tasks): 24 untouched official-train + 10 untouched official-dev.
+# Q1 headline curves use evaluation scenarios only. Any later rule change is a new guards
+# version, reported separately.
 
+design_scenarios = [
+  # touched by guards-v1 debugging
+  "07b42fd", "0d8a4ee", "22cc237", "23cf851", "27e1026", "287e338", "2a163ab", "302c169",
+  # untouched official-dev, added by salted hash
+  "37a8675", "396c5a2", "3ab5b8b", "4ec8de5", "530b157", "6171bbc", "d4e9306",
+]
+
+# Jobs whose runs were inspected while tuning (all Mac, 4-bit MLX).
 dev_jobs = [
   "mac-oracle-smoke",
   "mlx-4b-smoke-07b42fd_1",
+  "sampling-check-9b-t06",
   "w0-mini-4b-mlx",
   "w0-mini-9b-mlx",
   "w0-mini-9b-mlx-s34",
-]
-
-dev_tasks = [
-  "07b42fd_1",
-  "0d8a4ee_1", "0d8a4ee_2", "0d8a4ee_3",
-  "22cc237_1", "22cc237_2", "22cc237_3",
-  "23cf851_1", "23cf851_2", "23cf851_3",
-  "27e1026_1", "27e1026_2", "27e1026_3",
-  "287e338_1", "287e338_2", "287e338_3",
-  "2a163ab_1", "2a163ab_2", "2a163ab_3",
-  "302c169_1", "302c169_2", "302c169_3",
+  "w0-mini-9b-mlx-retry-a",
+  "w0-mini-9b-mlx-retry-b",
+  "w0-dev-9b-t06",
 ]

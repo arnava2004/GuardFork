@@ -40,7 +40,7 @@ def test_dev_set_excluded_from_eligibility():
 
     recs = [_rec("aaaaaaa_1", 0.0), _rec("bbbbbbb_1", 0.0, job="w0-mini-4b-mlx")]
     counts = {"aaaaaaa_1": (3, 8), "bbbbbbb_1": (4, 8)}
-    dev = DevSet(frozenset({"w0-mini-4b-mlx"}), frozenset({"aaaaaaa_1"}))
+    dev = DevSet(frozenset({"w0-mini-4b-mlx"}), frozenset({"aaaaaaa"}))
     assert eligible_failed_runs(recs, counts, dev_set=dev) == []
 
 

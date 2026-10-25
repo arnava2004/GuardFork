@@ -33,13 +33,27 @@ def frozen_versions(path: Path = FREEZE_PATH) -> dict[str, str]:
 
 @dataclass(frozen=True)
 class DevSet:
+    """Design side of the scenario-level design/evaluation split."""
+
     jobs: frozenset[str]
-    tasks: frozenset[str]
+    scenarios: frozenset[str]
+
+    @property
+    def tasks(self) -> frozenset[str]:
+        return frozenset(f"{s}_{i}" for s in self.scenarios for i in (1, 2, 3))
 
     def excludes(self, job: str, task_id: str | None) -> bool:
-        return job in self.jobs or (task_id is not None and task_id in self.tasks)
+        if job in self.jobs:
+            return True
+        if task_id is None:
+            return False
+        scenario, sep, _ = task_id.rpartition("_")
+        return bool(sep) and scenario in self.scenarios
 
 
 def load_dev_set(path: Path = DEV_SET_PATH) -> DevSet:
     data = tomllib.loads(path.read_text(encoding="utf-8"))
-    return DevSet(frozenset(data.get("dev_jobs", [])), frozenset(data.get("dev_tasks", [])))
+    scenarios = set(data.get("design_scenarios", []))
+    for task in data.get("dev_tasks", []):  # legacy key
+        scenarios.add(task.rpartition("_")[0])
+    return DevSet(frozenset(data.get("dev_jobs", [])), frozenset(scenarios))

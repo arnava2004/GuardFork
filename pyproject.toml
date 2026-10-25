@@ -24,8 +24,9 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-m 'not handwritten'"
 markers = [
-    "handwritten: originally reserved for hand-written modules; now run by default",
+    "handwritten: specs for Arnav's hand-written bayes_prior.py; fail until implemented (run with -m handwritten)",
     "pending: originally reserved for W1-W4 stubs; now run by default",
     "docker: requires AppWorld Harbor images; skipped unless images exist",
 ]

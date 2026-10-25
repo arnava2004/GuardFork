@@ -40,19 +40,38 @@ Arnav fills the blanks below (and the per-guard / no-G3 expectations) before `sc
   - G5 `UNVERIFIED_COMPLETION` (only if not G1): no tool call while completion status is not True, or `complete_task` without a post-write verification read.
   - `MAX_TURNS` / `CONTEXT_OVERFLOW` / `REPLAY_DIVERGED` are `TrajectoryStatus` values, not localizers.
 
+## v2 Protocol (binding; details in `PREREGISTRATION.md`)
+
+- **Split:** scenario-level design (15 scenarios, incl. all 8 debugged ones; 6 of them are official `train`) vs evaluation (34 untouched scenarios). Headline Q1 uses evaluation only.
+- **Single bf16 vLLM stack** for the Q1 failure pool and continuations, after a GPU concurrency pilot (C in {8, 16, 32}). Mac 4-bit runs are design/pilot only.
+- **s1 screen** at K = 8; hopeless = 0/8 confirmed 0/16; everything ≥ 1/16 is eligible.
+- **Candidate-augmented probe grid:** thinned grid plus mandatory windows around each guard's first firing, the open-weight judge pick and the original run's entropy peak; K = 16 refinement around the candidate change-point; deterministic snapping; 10–15 fully dense runs to bound snapping bias.
+- **Primary oracle:** change-point first-irrecoverable turn at τ = 0.5·V̂(s1) with a 90% bootstrap interval; τ in {0.3, 0.7} and largest-drop as sensitivity. 8/8 split-half on K = 16 states, Beta bootstrap elsewhere.
+- **Localizer ladder** from the LVRL-style error-marker floor to bisection and `guard_bayesect`; posterior step-credit scored against the oracle and a fault-triage section (`FRONTIER_TANGENTS.md`), training reweighting demoted to an appendix pilot.
+
 ## Compute Plan
 
 - **Mac (M4 Pro 48 GB, `mlx_lm.server`, 4-bit, arm64 AppWorld images):** pipeline checks, train147 pass-band screens, dev-set work, human failure labels, the LLM-judge baseline, the DPO plumbing dry run, and a 2-failure referee smoke test at K=4 to price the GPU run. Not used for K0 or any headline number.
 - **Lambda GPU VMs (vLLM, full-precision weights, amd64 images rebuilt on the VM):** K0 anchor (9B B0 on test_normal), the Q1 referee at scale (~6000 episodes, ~130 h on the Mac), training arms, and 5-seed test_normal evals. GCP is the fallback. Same `config/sampling.toml` through the same proxy on both machines; one serving stack per machine.
 
-## Model Lineup (budget-ordered)
+## Model Lineup & Phased Benchmark Roadmap (Budget-Ordered)
 
-- **Core, trained with all 5 arms (Lambda, bf16):** `Qwen/Qwen3.5-9B`. Harness-Zero's base model, so it is the headline and the direct comparison.
-- **Cross-family control, trained with GF-DPO + the best baseline (Lambda):** one non-Qwen model with a public J-lens, chosen by a 10-task K2 (tool-call parse) smoke test: `mistral-small-24b-instruct-2501` or `openai/gpt-oss-20b`.
-- **If budget remains:** `Qwen/Qwen3.5-4B` with all arms (the weak-model point).
-- **Q1 only (rollouts + guards + referee subset, no training):** a scaling ladder `Qwen3.5-2B -> 4B -> 9B -> 27B or 35B-A3B`, reported as descriptive failure-mode shifts per guard type.
-- **J-lens stretch (offline readout over saved runs, after Q1 numbers):** lens models only (`qwen3.6-27b`, `gpt-oss-20b`, `mistral-small-24b`; Gemma 4 lenses also exist, pending the outside-work check on using Google-released weights). A lens only reads its own model's activations, so the lens model needs its own AppWorld rollouts and referee labels.
-- **Mac:** 4B/9B 4-bit for screens, dev work, and the LoRA DPO dry run; a lens-model plumbing smoke test (rollouts on ~10 dev tasks for K2, then the lens on 2 saved failures) once the overnight jobs finish.
+### Phase 1: AppWorld Parameter-Size Ladder (Now $\to$ Lambda GPU Cluster)
+
+We separate **Q1 (Localization & J-Lens)** from **Q2 (Offline Post-Training)** by what each question requires:
+
+| Tier | Models | Scope | Where It Runs |
+|---|---|---|---|
+| **Q1 Scaling Ladder (No Training)** | `Qwen3.5-2B` $\to$ `4B` $\to$ `9B` $\to$ `27B / 35B-A3B` $\to$ `235B+` (plus `test_challenge` `split_challenge417.txt` if large models saturate `train147`) | Base rollouts + `G1–G5` guards + LLM-judge baseline + MC referee subset (`t*`) to plot **guard localization accuracy & failure-mode shifts across model scale** | Mac (`2B/4B/9B` 4-bit screens) $\to$ Lambda `vLLM` (`bf16` up to `35B-A3B`) $\to$ hosted open-weight API only for the `235B+` top-of-curve point |
+| **Q2 Core Trained Models (All 5 Arms)** | 1. **`Qwen/Qwen3.5-9B` (`bf16`)** — primary headline (matches Harness-Zero's base model)<br>2. **Cross-family control** (`mistral-small-24b-instruct-2501` or `openai/gpt-oss-20b`, chosen by 10-task `K2` parse test)<br>3. **`Qwen/Qwen3.5-4B` (`bf16`)** (weak-model anchor) and/or **`Qwen3.5-35B-A3B`** (MoE, 3B active params) as budget allows | Full offline post-training comparison (`B0`, `RFT`, `T-DPO`, `G-REW`, `R-FORK-DPO`, `GF-DPO`) + 5-seed `test_normal` eval | Mac (`mlx-lm-lora` plumbing dry run on 4B/9B) $\to$ Lambda GPU (`bf16` LoRA; Tinker optional for 30B+ MoE) |
+| **J-Lens Stretch (Offline Readout)** | Public-lens models (`qwen3.6-27b`, `gpt-oss-20b`, `mistral-small-24b`; `gemma-4` pending outside-work check) | 1 offline forward pass over saved token IDs on that model's own AppWorld rollouts + referee labels (`t*`) | Mac (10-task K2 smoke + 2-failure lens test) $\to$ Lambda GPU |
+
+### Phase 2: Second-Benchmark Transfer Validation (After AppWorld Q1 + Q2 Lock)
+
+Once the AppWorld parameter-size ladder (`Q1`) and post-training comparison (`Q2`) are locked, validate transfer on a **second benchmark** so the paper establishes both **scale generality** and **domain generality**:
+- **Primary Benchmark #2: `SpreadsheetBench Verified`** (already shipped in Harbor format at `harness-zero/data/spreadsheetbench-verified/`, 300 train / 100 test, single-container bash + Python `.xlsx` manipulation).
+- **Backup / Harder Agentic Benchmark #2:** `tau2-bench` or `Terminal-Bench` if a multi-turn tool-use environment is needed for 30B+ models.
+- **Scope on Benchmark #2:** Run `Q1` guard localization + `Q2` winning arm (`GF-DPO` vs. `T-DPO` and `R-FORK-DPO`) on the primary model (`Qwen3.5-9B`) without re-running the full 5-arm ablation matrix.
 
 ## Known Deviations from Harness-Zero (methods section)
 
