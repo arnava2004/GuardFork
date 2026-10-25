@@ -26,6 +26,15 @@
   .pass { color:var(--ok); border-color:var(--ok); }
   .fail { color:var(--bad); border-color:var(--bad); }
   .warn { color:var(--warn); border-color:var(--warn); }
+  .running { color:var(--accent); border-color:var(--accent); }
+  .row2 { display:flex; gap:6px; margin-top:6px; align-items:center; }
+  .row2 select { flex:1; }
+  button { background:var(--panel); color:var(--text); border:1px solid var(--line);
+           border-radius:6px; padding:5px 10px; cursor:pointer; white-space:nowrap; }
+  .jobhead { margin:10px 0 2px; color:var(--dim); font-size:12px; word-break:break-all; }
+  .run .name { font-weight:600; word-break:break-all; }
+  .jobs td.sel { cursor:pointer; color:var(--accent); word-break:break-all; }
+  #stamp { color:var(--dim); font-size:11px; margin-top:4px; }
   .guard { background:var(--bad); color:#fff; border-color:var(--bad); }
   .meta { color:var(--dim); display:flex; gap:16px; flex-wrap:wrap; margin:6px 0 12px; }
   .task { background:var(--panel); border:1px solid var(--line); border-radius:8px;
@@ -52,12 +61,25 @@
 <body>
 <aside>
   <h1>GuardFork viewer</h1>
-  <input id="filter" placeholder="filter by job / task id">
-  <select id="outcome" style="margin-top:6px">
-    <option value="">all outcomes</option><option value="pass">passed</option>
-    <option value="fail">failed</option><option value="oracle">has oracle</option>
-  </select>
-  <div id="runs" style="margin-top:8px"></div>
+  <input id="filter" placeholder="filter by job / trial / task id">
+  <div class="row2">
+    <select id="job"><option value="">all jobs</option></select>
+    <select id="outcome">
+      <option value="">all statuses</option><option value="pass">pass</option>
+      <option value="fail">fail</option><option value="running">running</option>
+      <option value="error">error</option><option value="oracle">has oracle</option>
+    </select>
+  </div>
+  <div class="row2">
+    <button id="refresh">Refresh</button>
+    <label style="color:var(--dim);font-size:12px"><input id="auto" type="checkbox" checked
+      style="width:auto"> auto (5s)</label>
+  </div>
+  <div id="stamp"></div>
+  <h2>Jobs</h2>
+  <div id="jobs"></div>
+  <h2>Runs</h2>
+  <div id="runs"></div>
   <h2>Guards vs oracle</h2>
   <div id="summary"></div>
 </aside>
@@ -65,7 +87,7 @@
 
 <script>
 const $ = (s) => document.querySelector(s);
-let RUNS = [], ACTIVE = null;
+let RUNS = [], JOBS = [], ACTIVE = null, ACTIVE_SIG = null, LOADING = false;
 
 function el(tag, attrs = {}, ...kids) {
   const n = document.createElement(tag);
@@ -77,7 +99,9 @@ function el(tag, attrs = {}, ...kids) {
   return n;
 }
 const pill = (text, cls = "") => el("span", { class: "pill " + cls }, text);
-const outcome = (r) => r == null ? pill("error", "warn") : r >= 1 ? pill("pass", "pass") : pill("fail", "fail");
+const STATUS_CLASS = { pass: "pass", fail: "fail", running: "running", error: "warn" };
+const outcome = (s) => pill(s || "?", STATUS_CLASS[s] || "");
+const pct = (x) => x == null ? "–" : `${Math.round(100 * x)}%`;
 
 function textBlock(label, text, limit = 600) {
   if (!text) return null;
@@ -85,21 +109,59 @@ function textBlock(label, text, limit = 600) {
   return el("details", {}, el("summary", {}, `${label} (${text.length} chars)`), el("pre", {}, text));
 }
 
+const runSig = (r) => r ? `${r.status}|${r.n_turns}|${r.reward}` : null;
+
 async function loadRuns() {
-  RUNS = await (await fetch("/api/runs")).json();
-  renderRuns();
-  renderSummary(await (await fetch("/api/summary")).json());
+  if (LOADING) return;
+  LOADING = true;
+  try {
+    [RUNS, JOBS] = await Promise.all([
+      fetch("/api/runs").then((r) => r.json()), fetch("/api/jobs").then((r) => r.json())]);
+    renderJobs(); renderRuns();
+    $("#stamp").textContent = `${RUNS.length} runs · updated ${new Date().toLocaleTimeString()}`;
+    renderSummary(await (await fetch("/api/summary")).json());
+    const active = RUNS.find((r) => r.id === ACTIVE);
+    if (active && runSig(active) !== ACTIVE_SIG) await openRun(ACTIVE, true);
+  } catch (e) {
+    $("#stamp").textContent = `refresh failed: ${e}`;
+  } finally {
+    LOADING = false;
+  }
+}
+
+function renderJobs() {
+  const sel = $("#job"), cur = sel.value;
+  sel.replaceChildren(el("option", { value: "" }, "all jobs"),
+    ...JOBS.map((j) => el("option", { value: j.job }, j.job)));
+  sel.value = JOBS.some((j) => j.job === cur) ? cur : "";
+  const box = $("#jobs"); box.replaceChildren();
+  if (!JOBS.length) { box.append(el("div", { class: "empty" }, "no jobs")); return; }
+  const t = el("table", { class: "jobs" }, el("tr", {}, el("th", {}, "job"), el("th", {}, "graded"),
+    el("th", {}, "pass"), el("th", {}, "rate"), el("th", {}, "run"), el("th", {}, "err")));
+  for (const j of JOBS) {
+    const total = j.n_total_trials != null ? `/${j.n_total_trials}` : "";
+    t.append(el("tr", { title: `${j.n_trials}${total} trial dirs${j.finished ? " · job finished" : ""}` },
+      el("td", { class: "sel", onclick: () => { sel.value = j.job; renderRuns(); } }, j.job),
+      el("td", {}, `${j.graded}${total}`), el("td", {}, j.passed), el("td", {}, pct(j.pass_rate)),
+      el("td", {}, j.running), el("td", {}, j.error)));
+  }
+  box.append(t);
 }
 
 function renderRuns() {
-  const q = $("#filter").value.toLowerCase(), o = $("#outcome").value;
+  const q = $("#filter").value.toLowerCase(), o = $("#outcome").value, job = $("#job").value;
   const box = $("#runs"); box.replaceChildren();
   const shown = RUNS.filter((r) => (r.id + " " + (r.task_id || "")).toLowerCase().includes(q))
-    .filter((r) => !o || (o === "pass" ? r.reward >= 1 : o === "fail" ? !(r.reward >= 1) : r.has_oracle));
+    .filter((r) => !job || r.job === job)
+    .filter((r) => !o || (o === "oracle" ? r.has_oracle : r.status === o));
+  let lastJob = null;
   for (const r of shown) {
-    box.append(el("div", { class: "run" + (r.id === ACTIVE ? " active" : ""), onclick: () => openRun(r.id) },
-      el("div", {}, r.task_id || "?", el("br"), el("small", {}, `${r.job} · ${r.n_turns} turns`)),
-      outcome(r.reward)));
+    if (r.job !== lastJob) { box.append(el("div", { class: "jobhead" }, r.job)); lastJob = r.job; }
+    const sub = [r.task_id || "task ?", `${r.n_turns} turns`,
+      r.wall_seconds != null ? `${Math.round(r.wall_seconds)}s` : null, r.exception_type].filter(Boolean).join(" · ");
+    box.append(el("div", { class: "run" + (r.id === ACTIVE ? " active" : ""), title: r.id, onclick: () => openRun(r.id) },
+      el("div", {}, el("div", { class: "name" }, r.trial), el("small", {}, sub)),
+      outcome(r.status)));
   }
   if (!shown.length) box.append(el("div", { class: "empty" }, "no runs"));
 }
@@ -154,22 +216,28 @@ function card(t, d) {
   return c;
 }
 
-async function openRun(id) {
+async function openRun(id, keepScroll = false) {
   ACTIVE = id; renderRuns();
   const d = await (await fetch("/api/run?id=" + encodeURIComponent(id))).json();
-  const m = $("#main"); m.replaceChildren();
-  if (d.error) { m.append(el("div", { class: "empty" }, d.error)); return; }
-  m.append(...[el("h1", {}, d.task_id || d.id, " ", outcome(d.reward)),
-    el("div", { class: "meta" }, el("span", {}, d.id), el("span", {}, `status: ${d.status}`),
+  const m = $("#main"), scroll = m.scrollTop; m.replaceChildren();
+  if (d.error) { ACTIVE_SIG = null; m.append(el("div", { class: "empty" }, d.error)); return; }
+  ACTIVE_SIG = runSig(d);
+  m.append(...[el("h1", {}, `${d.trial} · ${d.task_id || "task ?"}`, " ", outcome(d.status)),
+    el("div", { class: "meta" }, el("span", {}, `job: ${d.job}`), el("span", {}, `trial: ${d.trial}`),
+      el("span", {}, `reward: ${d.reward ?? "–"}`), el("span", {}, `trajectory: ${d.trajectory_status}`),
       el("span", {}, `${d.T} turns`), d.wall_seconds != null ? el("span", {}, `${Math.round(d.wall_seconds)}s wall`) : null,
       el("span", {}, d.guards_available ? `first non-terminal guard: ${d.first_nonterminal_guard ?? "none"}` : "guards not implemented yet")),
     d.task ? el("div", { class: "task" }, d.task) : null,
     d.exception ? el("pre", {}, JSON.stringify(d.exception, null, 2)) : null,
     sparkline(d), el("h2", {}, "Turns"), ...d.turns.map((t) => card(t, d))].filter((n) => n != null));
+  if (keepScroll) m.scrollTop = scroll;
 }
 
 $("#filter").oninput = renderRuns;
 $("#outcome").onchange = renderRuns;
+$("#job").onchange = renderRuns;
+$("#refresh").onclick = loadRuns;
+setInterval(() => { if ($("#auto").checked && !document.hidden) loadRuns(); }, 5000);
 loadRuns();
 </script>
 </body>
