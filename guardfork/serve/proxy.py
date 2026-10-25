@@ -26,12 +26,24 @@ from typing import Any
 HOP_HEADERS = {"connection", "keep-alive", "transfer-encoding", "content-length", "host"}
 
 
-def inject_request_fields(body: dict[str, Any], backend: str) -> dict[str, Any]:
-    """Return a copy of a chat-completions body with token-id/logprob requests added.
+# Harness-Zero sends no sampling fields, and mlx_lm.server defaults to temperature 0.0,
+# which makes every seed the same greedy run. Qwen3.5 model card, thinking mode, coding.
+SAMPLING_PRESETS: dict[str, dict[str, float]] = {
+    "qwen-thinking-code": {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.0},
+    "none": {},
+}
+
+
+def inject_request_fields(body: dict[str, Any], backend: str,
+                          sampling: dict[str, float] | None = None) -> dict[str, Any]:
+    """Return a copy of a chat-completions body with token-id/logprob requests and default
+    sampling parameters added.
 
     Never overrides a field the client already set.
     """
     out = dict(body)
+    for key, value in (sampling or {}).items():
+        out.setdefault(key, value)
     out.setdefault("logprobs", True)
     if backend == "vllm":
         out.setdefault("return_token_ids", True)
@@ -89,7 +101,8 @@ class JsonlLog:
             f.write(line + "\n")
 
 
-def make_handler(upstream: str, backend: str, log: JsonlLog, tag: str | None, timeout: float):
+def make_handler(upstream: str, backend: str, log: JsonlLog, tag: str | None, timeout: float,
+                 sampling: dict[str, float] | None = None):
     upstream = upstream.rstrip("/")
 
     class Handler(BaseHTTPRequestHandler):
@@ -109,7 +122,8 @@ def make_handler(upstream: str, backend: str, log: JsonlLog, tag: str | None, ti
                 except json.JSONDecodeError:
                     req_json = None
             if req_json is not None:
-                body_bytes = json.dumps(inject_request_fields(req_json, backend)).encode()
+                req_json = inject_request_fields(req_json, backend, sampling)
+                body_bytes = json.dumps(req_json).encode()
 
             headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
             req = urllib.request.Request(
@@ -197,8 +211,9 @@ def serve(
     host: str = "127.0.0.1",
     tag: str | None = None,
     timeout: float = 600.0,
+    sampling: dict[str, float] | None = None,
 ) -> ThreadingHTTPServer:
-    handler = make_handler(upstream, backend, JsonlLog(log_path), tag, timeout)
+    handler = make_handler(upstream, backend, JsonlLog(log_path), tag, timeout, sampling)
     return ThreadingHTTPServer((host, port), handler)
 
 
@@ -212,11 +227,14 @@ def main() -> None:
     ap.add_argument("--log", type=Path, required=True)
     ap.add_argument("--tag", default=None, help="label written into every record")
     ap.add_argument("--timeout", type=float, default=600.0)
+    ap.add_argument("--sampling", choices=sorted(SAMPLING_PRESETS), default="qwen-thinking-code",
+                    help="default sampling fields injected when the client omits them")
     args = ap.parse_args()
+    sampling = SAMPLING_PRESETS[args.sampling]
     server = serve(args.upstream, args.port, args.log, args.backend, args.host, args.tag,
-                   args.timeout)
+                   args.timeout, sampling)
     print(f"guardfork proxy {args.host}:{args.port} -> {args.upstream} ({args.backend}), "
-          f"log={args.log}", flush=True)
+          f"sampling={args.sampling} {sampling}, log={args.log}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

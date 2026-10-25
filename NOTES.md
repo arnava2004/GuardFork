@@ -91,3 +91,21 @@ at conc 3 with `--student-timeout 600` (~294 episodes x 1.3 min ~ 6.5 h), then +
 with 1/2, and +6 on mixed tasks to reach K1's 8 samples. If the train147 K1 share is still < 0.20,
 the plan's rule applies (switch to SpreadsheetBench Verified). The Monte Carlo referee
 (~6000 episodes, ~1.3 min each on this Mac = ~130 h) belongs on GPU, not the Mac.
+
+### 2026-10-25 Greedy-decoding bug (invalidates the per-seed numbers above)
+
+- Harness-Zero's student client sends no sampling fields, and `mlx_lm.server` defaults to
+  temperature 0.0. Every local run before this entry was greedy: in 12/21 dev tasks all four 9B
+  seeds issued identical first three commands. Seeds were not independent samples.
+- Invalid until rerun: the 4B/9B per-task pass counts and K1 shares, the 78.6% 9B TGC (a greedy
+  pass is the same run counted 4x), and the 2/2 `302c169_2` fork (two greedy continuations from the
+  same state are the same run). Still valid: 20/20 replay parity and the fork pipeline itself
+  (replay makes no model calls), K2 parse rates, per-episode timings.
+- Fix: `guardfork.serve.proxy --sampling qwen-thinking-code` (default) injects temperature 0.6,
+  top_p 0.95, top_k 20, min_p 0.0 when the client omits them (Qwen3.5 model card, thinking mode,
+  coding) and logs them per request. Check: `0d8a4ee_2` (greedy 4/4) x3 sampled seeds -> rewards
+  0/1/1, 3/3 distinct trajectories.
+- Turn cap: our 40 equals Harness-Zero's default (`student_max_turns=40`); the paper's exact
+  AppWorld cap is still to be confirmed against the paper text.
+- Open: Harness-Zero's own sampling settings for its Qwen students are not in the repo; if the
+  train147 baseline stays far above their 26.8 SGC (test_normal), diff configs before the referee.
