@@ -29,9 +29,9 @@ def api_signature(command: str | None) -> Signature:
     except SyntaxError:
         return ()
     out: list[tuple[str, str, tuple[str, ...]]] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
+    calls = sorted((n for n in ast.walk(tree) if isinstance(n, ast.Call)),
+                   key=lambda n: (n.lineno, n.col_offset))
+    for node in calls:
         func = node.func
         if not (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Attribute)):
             continue
@@ -45,9 +45,24 @@ def api_signature(command: str | None) -> Signature:
     return tuple(out)
 
 
+WRITE_VERBS = ("create", "update", "delete", "remove", "send", "post", "pay", "add", "set",
+               "write", "cancel", "like", "follow", "approve", "deny", "move", "rename",
+               "upload", "reply", "mark", "accept", "decline", "play", "pause", "start",
+               "stop", "restore", "clear", "transfer", "request", "share")
+READ_VERBS = ("show", "get", "list", "search", "read", "find", "status", "download")
+NOT_STATE = ("login", "logout", "complete_task")
+
+
+def is_write(endpoint: str) -> bool:
+    e = endpoint.lower()
+    if any(e.startswith(n) for n in NOT_STATE):
+        return False
+    return any(e.startswith(v) for v in WRITE_VERBS)
+
+
+def is_read(endpoint: str) -> bool:
+    return any(endpoint.lower().startswith(v) for v in READ_VERBS)
+
+
 def mutating_apps(sig: Signature) -> frozenset[str]:
-    verbs = ("create", "update", "delete", "remove", "send", "post", "pay",
-             "complete", "login", "logout", "add", "set", "write", "cancel")
-    return frozenset(app for app, endpoint, _ in sig
-                     if any(endpoint.lower().startswith(v) or v in endpoint.lower()
-                            for v in verbs))
+    return frozenset(app for app, endpoint, _ in sig if is_write(endpoint))

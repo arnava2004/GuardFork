@@ -64,7 +64,7 @@ def status_of(record: TrialRecord, max_turns: int = MAX_TURNS_DEFAULT) -> Trajec
         return TrajectoryStatus.ERROR
     if record.passed:
         return TrajectoryStatus.PASSED
-    if record.n_turns >= max_turns:
+    if record.hit_turn_limit or record.n_turns >= max_turns:
         return TrajectoryStatus.MAX_TURNS
     return TrajectoryStatus.FAILED
 

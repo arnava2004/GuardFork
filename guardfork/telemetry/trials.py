@@ -54,6 +54,10 @@ class TrialRecord:
     def passed(self) -> bool:
         return self.reward is not None and self.reward >= 1.0
 
+    @property
+    def hit_turn_limit(self) -> bool:
+        return _exception_type(self.exception) in TURN_LIMIT_EXCEPTIONS
+
 
 def _read_json(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
@@ -85,6 +89,15 @@ def _has_truthy_key(obj: Any, key: str) -> bool:
     if isinstance(obj, list):
         return any(_has_truthy_key(v, key) for v in obj)
     return False
+
+
+TURN_LIMIT_EXCEPTIONS = {"StudentTurnLimitError"}
+
+
+def _exception_type(exception: Any) -> str | None:
+    if isinstance(exception, dict):
+        return exception.get("exception_type") or exception.get("type")
+    return None
 
 
 def _parse_time(value: Any) -> datetime | None:
@@ -141,6 +154,8 @@ def load_trial(teacher_dir: Path, job: str) -> TrialRecord:
         exception = harbor.get("exception_info")
         with contextlib.suppress(KeyError, TypeError, ValueError):
             reward = float(harbor["verifier_result"]["rewards"]["reward"])
+        if reward is None and _exception_type(exception) in TURN_LIMIT_EXCEPTIONS:
+            reward = 0.0
         task_id = task_id or harbor.get("task_name") or harbor.get("task_id")
         start, end = _parse_time(harbor.get("started_at")), _parse_time(harbor.get("finished_at"))
         if start and end:

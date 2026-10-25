@@ -6,20 +6,20 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
-from guardfork.guards.ast_sig import api_signature, mutating_apps
+from guardfork.guards.ast_sig import api_signature, is_read, is_write
 from guardfork.types import N_DEMO_ASSISTANT_TURNS, Trajectory, Turn
 
 CODE_FENCE = "```"
 APPWORLD_EXEC = "appworld exec"
 TOOL_MARKUP = ("<tool_call>", "<function=")
-HTTP_ERROR = re.compile(r"\b(401|403|404|422)\b")
+HTTP_ERROR = re.compile(r"(?:status code is|HTTP)\s*(401|403|404|422)\b", re.IGNORECASE)
 ENTITY_ID = re.compile(
     r"""(?:['"][0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}['"]"""
     r"""|[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,})""",
     re.IGNORECASE,
 )
 DESTRUCTIVE = re.compile(
-    r"\b(?:delete_|remove_|logout|drop_|destroy_|unlink)\w*\s*\(", re.IGNORECASE
+    r"\b(?:delete_|remove_|drop_|destroy_|unlink)\w*\s*\(", re.IGNORECASE
 )
 
 
@@ -126,25 +126,24 @@ def _g4(prefix: tuple[Turn, ...], trajectory: Trajectory) -> GuardFiring | None:
 
 
 def _had_verification_read(prefix: tuple[Turn, ...]) -> bool:
-    last_write = None
-    for i, t in enumerate(prefix):
-        if mutating_apps(api_signature(t.command)):
-            last_write = i
-    if last_write is None:
+    """True unless some write call has no read call after it (call order, across turns),
+    up to the first `complete_task` call."""
+    calls: list[str] = []
+    for t in prefix:
+        for _, endpoint, _ in api_signature(t.command):
+            if endpoint == "complete_task":
+                break
+            calls.append(endpoint)
+    writes = [i for i, e in enumerate(calls) if is_write(e)]
+    if not writes:
         return True
-    reads = ("show", "get", "list", "search", "read", "status")
-    for t in prefix[last_write + 1:]:
-        sig = api_signature(t.command)
-        if any(any(r in endpoint.lower() for r in reads) for _, endpoint, _ in sig):
-            return True
-    return False
+    return any(is_read(e) for e in calls[writes[-1] + 1:])
 
 
 def _g5(prefix: tuple[Turn, ...], trajectory: Trajectory) -> GuardFiring | None:
     turn = prefix[-1]
     cmd = turn.command or ""
-    if ("complete_task" in cmd and not _had_verification_read(prefix[:-1] + (turn,))
-            and not _had_verification_read(prefix[:-1])):
+    if "complete_task" in cmd and not _had_verification_read(prefix):
         return GuardFiring(Guard.G5_UNVERIFIED_COMPLETION, turn.turn,
                            "complete_task without verification read")
     if turn.tool_calls:

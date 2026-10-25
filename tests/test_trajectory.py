@@ -40,6 +40,19 @@ def test_crashed_trial_is_error_status():
     assert to_trajectory(rec).status is TrajectoryStatus.ERROR
 
 
+def test_turn_limit_exception_counts_as_failure(make_trial, event):
+    import json as _json
+
+    job = make_trial("j", "t0", "aaaaaaa_1", None, [event("aaaaaaa_1")])
+    result_path = job / "t0" / "result.json"
+    data = _json.loads(result_path.read_text())
+    data["exception_info"] = {"exception_type": "StudentTurnLimitError"}
+    result_path.write_text(_json.dumps(data))
+    rec = next(iter_trials(job))
+    assert rec.reward == 0.0 and rec.hit_turn_limit
+    assert to_trajectory(rec).status is TrajectoryStatus.MAX_TURNS
+
+
 def test_max_turns_status():
     turns = [TurnRecord(i, "x", False) for i in range(40)]
     rec = TrialRecord(Path("t"), "j", "aaaaaaa_1", 0.0, None, 1.0, turns, [])

@@ -115,7 +115,7 @@ def status_of(t: TrialRecord) -> str:
         return "error" if t.exception else "ungraded"
     if t.passed:
         return "passed"
-    if t.n_turns >= MAX_TURNS:
+    if t.hit_turn_limit or t.n_turns >= MAX_TURNS:
         return "failed_max_turns"
     return "failed"
 

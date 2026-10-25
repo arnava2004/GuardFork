@@ -118,6 +118,26 @@ def test_g4_outside_allowed_app():
     assert Guard.G4_CONSTRAINT_VIOLATION in _guards((t,), traj)
 
 
+def test_g5_complete_task_after_login_and_read_in_same_turn():
+    write = _turn(1, command="print(apis.phone.update_alarm(alarm_id=1, time='06:50'))")
+    verify = _turn(2, command="t = apis.phone.login(username='u', password='p')\n"
+                              "print(apis.phone.show_alarms(access_token=t))")
+    done = _turn(3, command="print(apis.boss.complete_task())")
+    traj = _traj(write, verify, done)
+    assert Guard.G5_UNVERIFIED_COMPLETION not in _guards((write, verify, done), traj)
+
+
+def test_g5_complete_task_right_after_write():
+    write = _turn(1, command="print(apis.phone.update_alarm(alarm_id=1, time='06:50'))")
+    done = _turn(2, command="print(apis.boss.complete_task())")
+    assert Guard.G5_UNVERIFIED_COMPLETION in _guards((write, done), _traj(write, done))
+
+
+def test_g3_ignores_incidental_numbers():
+    t = _turn(1, observation="Paid $404 to Sam, balance 1422")
+    assert Guard.G3_FAILED_PRECONDITION not in _guards((t,), _traj(t))
+
+
 def test_g5_done_without_tool_call():
     t = _turn(1, command=None, content="Done!")
     assert Guard.G5_UNVERIFIED_COMPLETION in _guards((t,), _traj(t))
