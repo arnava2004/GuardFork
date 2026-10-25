@@ -45,6 +45,7 @@ class TrialRecord:
     wall_seconds: float | None
     turns: list[TurnRecord]
     events: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    started_at: str | None = None
 
     @property
     def n_turns(self) -> int:
@@ -162,7 +163,9 @@ def load_trial(teacher_dir: Path, job: str) -> TrialRecord:
             wall = (end - start).total_seconds()
     elif local is None:
         exception = "missing result.json"
-    return TrialRecord(trial_dir, job, task_id, reward, exception, wall, turns, events)
+    started = harbor.get("started_at") if harbor is not None else None
+    return TrialRecord(trial_dir, job, task_id, reward, exception, wall, turns, events,
+                       started if isinstance(started, str) else None)
 
 
 def iter_trials(job_dir: Path, job: str | None = None) -> Iterator[TrialRecord]:

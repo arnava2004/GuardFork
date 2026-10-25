@@ -85,9 +85,33 @@ def test_summary_and_kill(make_trial, event, kill):
                                                           k4_prompt_tokens=5000)}
     assert res["K2"].passed is False
     assert res["K4"].passed is True
-    assert res["K1"].passed is False
+    assert res["K1"].passed is None and "not measurable" in res["K1"].note
     md = w0.render_markdown("t", s, list(res.values()), {"commit": "x"})
     assert "**FAIL**" in md and json.dumps(md)
+
+
+def test_sgc_splits_attempts_within_one_job(tmp_path):
+    from pathlib import Path
+
+    from guardfork.telemetry.trials import TrialRecord
+
+    def rec(task, reward, start):
+        return TrialRecord(Path(f"{task}_{start}"), "job", task, reward, None, 1.0, [], [],
+                           f"2026-10-25T00:0{start}:00")
+
+    tids = ["aaaaaaa_1", "aaaaaaa_2", "aaaaaaa_3"]
+    trials = [rec(t, 1.0, 0) for t in tids] + [rec(tids[0], 0.0, 5)] + \
+             [rec(t, 1.0, 5) for t in tids[1:]]
+    assert w0.sgc(trials) == 50.0
+
+
+def test_k1_measurable_with_enough_samples(kill):
+    counts = {f"aaaaaaa_{i}": (p, 8) for i, p in enumerate([4, 0, 8, 3])}
+    frac, n_in, n = w0.pass_band_fraction(counts, kill.weekend_0.k1_pass_band, 8)
+    s = w0.W0Summary(0, 0, None, None, (frac, n_in, n), None, None, None, None, {}, 0, None, {},
+                     0, 0, 0, None, None, max_samples_per_task=8)
+    (k1, *_rest) = w0.evaluate_kill(s, kill, is_k0_run=False)
+    assert k1.passed is True and k1.value == 0.5
 
 
 def test_k0_range(kill):

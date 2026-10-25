@@ -37,16 +37,33 @@ def tgc(trials: Sequence[TrialRecord]) -> float | None:
     return 100.0 * sum(t.passed for t in graded) / len(graded)
 
 
-def sgc(trials: Sequence[TrialRecord]) -> float | None:
-    """Scenario goal completion (%), computed within each job (one seed pass), then averaged.
-
-    A scenario counts only if all of its tasks in that job were graded; it passes iff
-    every one of them passed.
-    """
-    per_job: dict[str, dict[str, list[TrialRecord]]] = defaultdict(lambda: defaultdict(list))
+def seed_index(trials: Sequence[TrialRecord]) -> dict[int, int]:
+    """id(trial) -> seed index: rank by start time among trials of the same (job, task), so a
+    Harbor job with n_attempts > 1 splits into one seed pass per attempt."""
+    groups: dict[tuple[str, str], list[TrialRecord]] = defaultdict(list)
     for t in trials:
         if t.task_id:
-            per_job[t.job][scenario_of(t.task_id)].append(t)
+            groups[(t.job, t.task_id)].append(t)
+    out: dict[int, int] = {}
+    for ts in groups.values():
+        for k, t in enumerate(sorted(ts, key=lambda r: (r.started_at or "", r.trial_dir.name))):
+            out[id(t)] = k
+    return out
+
+
+def sgc(trials: Sequence[TrialRecord]) -> float | None:
+    """Scenario goal completion (%), computed within each seed pass (job x attempt index),
+    then averaged.
+
+    A scenario counts only if all of its tasks in that pass were graded; it passes iff
+    every one of them passed.
+    """
+    seeds = seed_index(trials)
+    per_job: dict[tuple[str, int], dict[str, list[TrialRecord]]] = defaultdict(
+        lambda: defaultdict(list))
+    for t in trials:
+        if t.task_id:
+            per_job[(t.job, seeds[id(t)])][scenario_of(t.task_id)].append(t)
     job_scores = []
     for scenarios in per_job.values():
         complete = [ts for ts in scenarios.values()
@@ -108,6 +125,8 @@ class W0Summary:
     proxy_requests: int = 0
     proxy_ok_rate: float | None = None
     second_stage: list[str] = field(default_factory=list)
+    max_samples_per_task: int = 0
+    passes_histogram: dict[str, int] = field(default_factory=dict)
 
 
 def status_of(t: TrialRecord) -> str:
@@ -159,6 +178,8 @@ def summarize(
         proxy_requests=len(proxy),
         proxy_ok_rate=(sum(p.ok for p in proxy) / len(proxy)) if proxy else None,
         second_stage=second_stage_tasks(counts),
+        max_samples_per_task=max((n for _, n in counts.values()), default=0),
+        passes_histogram=dict(sorted(Counter(f"{p}/{n}" for p, n in counts.values()).items())),
     )
 
 
@@ -196,11 +217,14 @@ def evaluate_kill(
                               None if s.sgc is None else lo <= s.sgc <= hi))
     else:
         frac = s.pass_band[0]
+        measurable = frac is not None and s.max_samples_per_task >= w0.k1_min_samples_per_task
         out.append(KillResult(
             "K1 pass-band fraction", frac, f">= {w0.k1_min_pass_band_fraction}",
-            None if frac is None else frac >= w0.k1_min_pass_band_fraction,
+            frac >= w0.k1_min_pass_band_fraction if measurable else None,
             f"{s.pass_band[1]}/{s.pass_band[2]} tasks in {list(w0.k1_pass_band)} "
-            f"with >= {w0.k1_min_samples_per_task} samples",
+            f"with >= {w0.k1_min_samples_per_task} samples"
+            + ("" if measurable else
+               f"; not measurable yet (max {s.max_samples_per_task} samples/task)"),
         ))
     r = s.parse_failure_rate
     out.append(KillResult("K2 parse-failure rate / turn", r, f"<= {w0.k2_max_parse_failure_rate}",
@@ -241,6 +265,7 @@ def render_markdown(title: str, s: W0Summary, results: list[KillResult], meta: d
         f"- proxy: {s.proxy_requests} requests, ok {_fmt(s.proxy_ok_rate)}; prompt tokens "
         f"p50/p95: {_fmt(s.prompt_tokens_p50)} / {_fmt(s.prompt_tokens_p95)}; completion "
         f"tokens total: {s.completion_tokens_total}",
+        f"- per-task passes/samples: {s.passes_histogram}",
         f"- second-stage (+4 seed) tasks: {len(s.second_stage)}",
         "",
         "| criterion | value | threshold | pass |",
