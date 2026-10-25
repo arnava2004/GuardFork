@@ -46,6 +46,26 @@ def test_g1_tool_markup_in_reasoning():
     assert Guard.G1_INVALID_ACTION in _guards((t,), _traj(t))
 
 
+def test_g2_loop_fires_on_third_identical_action_and_outcome():
+    pay = "print(apis.venmo.create_transaction(receiver_email='r@x.com', amount=42))"
+    traj = _traj(_turn(1), _turn(2), _turn(3),
+                 _turn(4, command=pay, observation="ok"),
+                 _turn(5, command=pay, observation="ok"),
+                 _turn(6, command=pay, observation="ok"),
+                 _turn(7, command=None, content="Done!"))
+    g2_turns = [f.turn for f in evaluate(traj) if f.guard is Guard.G2_LOOP]
+    assert g2_turns and g2_turns[0] == 6
+
+
+def test_g2_needs_same_outcome_too():
+    cmd = "print(apis.spotify.next_page())"
+    traj = _traj(_turn(1, command=cmd, observation="page 1"),
+                 _turn(2, command=cmd, observation="page 2"),
+                 _turn(3, command=cmd, observation="page 3"),
+                 _turn(4, command=None))
+    assert all(f.guard is not Guard.G2_LOOP for f in evaluate(traj))
+
+
 def test_g5_suppressed_by_g1():
     t = _turn(1, content="```python\nprint(1)\n```", command=None)
     got = _guards((t,), _traj(t))

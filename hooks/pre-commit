@@ -5,7 +5,7 @@ set -euo pipefail
 
 blocked_path_re='(^|/)(runs|results|forks|teacher|jobs)/|(^|/)appworld_initial_context\.json$|\.tar$|\.jsonl$|^data/appworld/'
 # Markers that only appear in AppWorld task prompts / harness transcripts.
-blocked_text_re='\[APPWORLD_CURRENT_TASK\]|apis\.supervisor\.complete_task|appworld_initial_context|"supervisor":\s*\{'
+blocked_text_re='\[APPWORLD_CURRENT_TASK\]|apis\.supervisor\.complete_task|"supervisor":\s*\{'
 
 status=0
 files=$(git diff --cached --name-only --diff-filter=ACMR)

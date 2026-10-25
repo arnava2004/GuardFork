@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+MAX_TURNS_DEFAULT = 40
 UNPARSED_MARKUP = ("<tool_call>", "</tool_call>", "<function=")
 SUBAGENT_RE = re.compile(r"(?:^|[\s;&|(])agent\s+[\"']")
 
@@ -43,6 +44,7 @@ class TrialRecord:
     exception: Any
     wall_seconds: float | None
     turns: list[TurnRecord]
+    events: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
     @property
     def n_turns(self) -> int:
@@ -145,7 +147,7 @@ def load_trial(teacher_dir: Path, job: str) -> TrialRecord:
             wall = (end - start).total_seconds()
     elif local is None:
         exception = "missing result.json"
-    return TrialRecord(trial_dir, job, task_id, reward, exception, wall, turns)
+    return TrialRecord(trial_dir, job, task_id, reward, exception, wall, turns, events)
 
 
 def iter_trials(job_dir: Path, job: str | None = None) -> Iterator[TrialRecord]:

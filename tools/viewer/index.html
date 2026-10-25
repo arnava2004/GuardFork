@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GuardFork viewer</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --text:#e6e6e6; --dim:#8b93a3;
+          --ok:#3fb950; --bad:#f85149; --warn:#d29922; --accent:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 ui-sans-serif,system-ui,-apple-system,sans-serif;
+         background:var(--bg); color:var(--text); display:grid;
+         grid-template-columns:320px 1fr; height:100vh; }
+  aside { border-right:1px solid var(--line); overflow:auto; padding:12px; }
+  main { overflow:auto; padding:16px 24px; }
+  h1 { font-size:16px; margin:0 0 8px; }
+  h2 { font-size:14px; margin:16px 0 8px; color:var(--dim); text-transform:uppercase;
+       letter-spacing:.05em; }
+  input, select { width:100%; background:var(--panel); color:var(--text);
+                  border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  .run { padding:6px 8px; border-radius:6px; cursor:pointer; display:flex;
+         justify-content:space-between; align-items:center; gap:8px; }
+  .run:hover, .run.active { background:var(--panel); }
+  .run small { color:var(--dim); }
+  .pill { font-size:11px; padding:1px 7px; border-radius:999px; border:1px solid var(--line);
+          white-space:nowrap; }
+  .pass { color:var(--ok); border-color:var(--ok); }
+  .fail { color:var(--bad); border-color:var(--bad); }
+  .warn { color:var(--warn); border-color:var(--warn); }
+  .guard { background:var(--bad); color:#fff; border-color:var(--bad); }
+  .meta { color:var(--dim); display:flex; gap:16px; flex-wrap:wrap; margin:6px 0 12px; }
+  .task { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+          padding:10px 12px; white-space:pre-wrap; max-height:140px; overflow:auto; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+          margin:10px 0; padding:10px 12px; }
+  .card.has-guard { border-color:var(--bad); }
+  .card.t-star { box-shadow:0 0 0 2px var(--warn) inset; }
+  .card header { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .card header b { min-width:56px; }
+  .card .stats { margin-left:auto; color:var(--dim); font-size:12px; }
+  pre { margin:8px 0 0; white-space:pre-wrap; word-break:break-word; background:#0b0d11;
+        border-radius:6px; padding:8px; font:12px/1.4 ui-monospace,Menlo,monospace; }
+  details summary { cursor:pointer; color:var(--dim); margin-top:6px; }
+  .forks { display:flex; gap:4px; margin-top:8px; flex-wrap:wrap; }
+  .dot { width:14px; height:14px; border-radius:3px; }
+  .dot.p { background:var(--ok); } .dot.f { background:var(--bad); } .dot.n { background:var(--dim); }
+  svg text { fill:var(--dim); font-size:10px; }
+  table { border-collapse:collapse; width:100%; font-size:12px; }
+  td, th { border-bottom:1px solid var(--line); padding:3px 4px; text-align:left; }
+  .empty { color:var(--dim); padding:40px 0; text-align:center; }
+</style>
+</head>
+<body>
+<aside>
+  <h1>GuardFork viewer</h1>
+  <input id="filter" placeholder="filter by job / task id">
+  <select id="outcome" style="margin-top:6px">
+    <option value="">all outcomes</option><option value="pass">passed</option>
+    <option value="fail">failed</option><option value="oracle">has oracle</option>
+  </select>
+  <div id="runs" style="margin-top:8px"></div>
+  <h2>Guards vs oracle</h2>
+  <div id="summary"></div>
+</aside>
+<main id="main"><div class="empty">Pick a run on the left.</div></main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let RUNS = [], ACTIVE = null;
+
+function el(tag, attrs = {}, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") n.className = v; else if (k === "onclick") n.onclick = v;
+    else n.setAttribute(k, v);
+  }
+  for (const k of kids) if (k != null) n.append(k instanceof Node ? k : String(k));
+  return n;
+}
+const pill = (text, cls = "") => el("span", { class: "pill " + cls }, text);
+const outcome = (r) => r == null ? pill("error", "warn") : r >= 1 ? pill("pass", "pass") : pill("fail", "fail");
+
+function textBlock(label, text, limit = 600) {
+  if (!text) return null;
+  if (text.length <= limit) return el("div", {}, el("pre", {}, text));
+  return el("details", {}, el("summary", {}, `${label} (${text.length} chars)`), el("pre", {}, text));
+}
+
+async function loadRuns() {
+  RUNS = await (await fetch("/api/runs")).json();
+  renderRuns();
+  renderSummary(await (await fetch("/api/summary")).json());
+}
+
+function renderRuns() {
+  const q = $("#filter").value.toLowerCase(), o = $("#outcome").value;
+  const box = $("#runs"); box.replaceChildren();
+  const shown = RUNS.filter((r) => (r.id + " " + (r.task_id || "")).toLowerCase().includes(q))
+    .filter((r) => !o || (o === "pass" ? r.reward >= 1 : o === "fail" ? !(r.reward >= 1) : r.has_oracle));
+  for (const r of shown) {
+    box.append(el("div", { class: "run" + (r.id === ACTIVE ? " active" : ""), onclick: () => openRun(r.id) },
+      el("div", {}, r.task_id || "?", el("br"), el("small", {}, `${r.job} · ${r.n_turns} turns`)),
+      outcome(r.reward)));
+  }
+  if (!shown.length) box.append(el("div", { class: "empty" }, "no runs"));
+}
+
+function renderSummary(s) {
+  const box = $("#summary"); box.replaceChildren();
+  if (!s.runs_with_oracle) { box.append(el("div", { class: "empty" }, "no oracle results yet")); return; }
+  box.append(el("div", {}, `${s.runs_with_oracle} runs with oracle · ${s.comparable} comparable`),
+    el("div", {}, `t* undefined: ${s.t_star_undefined} · no non-terminal guard: ${s.no_nonterminal_guard}`));
+  const t = el("table", {}, el("tr", {}, el("th", {}, "window"), el("th", {}, "hits"), el("th", {}, "rate")));
+  for (const [w, h] of Object.entries(s.hits))
+    t.append(el("tr", {}, el("td", {}, `|g − t*| ≤ ${w}`), el("td", {}, h),
+      el("td", {}, s.comparable ? (h / s.comparable).toFixed(2) : "–")));
+  box.append(t, el("div", { style: "color:var(--dim);font-size:11px;margin-top:4px" },
+    "Descriptive only; CIs come from guardfork/stats."));
+}
+
+function sparkline(d) {
+  const o = d.oracle; if (!o || !o.values) return null;
+  const T = d.T, W = 720, H = 90, pad = 20, ns = "http://www.w3.org/2000/svg";
+  const x = (t) => pad + ((t - 1) / Math.max(T, 1)) * (W - 2 * pad), y = (v) => H - pad - v * (H - 2 * pad);
+  const pts = Object.entries(o.values).map(([t, [p, n]]) => [Number(t), n ? p / n : 0]).sort((a, b) => a[0] - b[0]);
+  pts.push([T + 1, d.reward ?? 0]);
+  const svg = document.createElementNS(ns, "svg"); svg.setAttribute("width", W); svg.setAttribute("height", H);
+  const add = (tag, a, txt) => { const n = document.createElementNS(ns, tag); for (const k in a) n.setAttribute(k, a[k]); if (txt) n.textContent = txt; svg.append(n); return n; };
+  add("line", { x1: pad, x2: W - pad, y1: y(0), y2: y(0), stroke: "#2a2f3a" });
+  add("line", { x1: pad, x2: W - pad, y1: y(1), y2: y(1), stroke: "#2a2f3a" });
+  const mark = (t, color, label) => { if (t == null) return; add("line", { x1: x(t), x2: x(t), y1: 6, y2: H - pad, stroke: color, "stroke-dasharray": "3 3" }); add("text", { x: x(t) + 3, y: 14 }, label); };
+  mark(d.first_nonterminal_guard, "#f85149", `guard g=${d.first_nonterminal_guard}`);
+  mark(o.t_star, "#d29922", `t*=${o.t_star}`);
+  add("polyline", { points: pts.map(([t, v]) => `${x(t)},${y(v)}`).join(" "), fill: "none", stroke: "#58a6ff", "stroke-width": 2 });
+  for (const [t, v] of pts) { add("circle", { cx: x(t), cy: y(v), r: 3, fill: "#58a6ff" }); add("text", { x: x(t) - 6, y: H - 4 }, String(t)); }
+  return el("div", {}, el("h2", {}, `Oracle V̂(s_t), K=${o.K ?? "?"}`), svg);
+}
+
+function card(t, d) {
+  const guards = t.guards.map((g) => pill(g.guard, "guard"));
+  const flags = [...t.parse_reasons.map((r) => pill(r, "warn")),
+    t.subagent_call ? pill("subagent", "warn") : null, t.session_reset ? pill("session_reset", "warn") : null];
+  const stats = [t.prompt_tokens != null ? `${t.prompt_tokens} in` : null,
+    t.completion_tokens != null ? `${t.completion_tokens} out` : null,
+    t.latency_s != null ? `${t.latency_s.toFixed(1)}s` : null].filter(Boolean).join(" · ");
+  const c = el("div", { class: "card" + (t.guards.length ? " has-guard" : "") + (d.oracle && d.oracle.t_star === t.turn ? " t-star" : "") },
+    el("header", {}, el("b", {}, `Turn ${t.turn}`), ...guards, ...flags, el("span", { class: "stats" }, stats || "no proxy match")),
+    t.command ? el("pre", {}, t.command) : el("div", { style: "color:var(--dim);margin-top:6px" }, t.n_tool_calls ? `${t.n_tool_calls} tool calls` : "no tool call"),
+    textBlock("visible content", t.content, 300),
+    t.reasoning ? el("details", {}, el("summary", {}, `reasoning (${t.reasoning.length} chars)`), el("pre", {}, t.reasoning)) : null,
+    t.observation != null ? textBlock("observation", t.observation) : null,
+    ...t.guards.map((g) => el("div", { style: "color:var(--bad);font-size:12px;margin-top:4px" }, `${g.guard}: ${g.evidence}`)));
+  if (t.forks.length) c.append(el("div", { class: "forks" }, el("small", { style: "color:var(--dim)" }, "forks:"),
+    ...t.forks.map((f) => el("div", { class: "dot " + (f.reward == null ? "n" : f.reward >= 1 ? "p" : "f"), title: f.first_action || "" }))));
+  return c;
+}
+
+async function openRun(id) {
+  ACTIVE = id; renderRuns();
+  const d = await (await fetch("/api/run?id=" + encodeURIComponent(id))).json();
+  const m = $("#main"); m.replaceChildren();
+  if (d.error) { m.append(el("div", { class: "empty" }, d.error)); return; }
+  m.append(...[el("h1", {}, d.task_id || d.id, " ", outcome(d.reward)),
+    el("div", { class: "meta" }, el("span", {}, d.id), el("span", {}, `status: ${d.status}`),
+      el("span", {}, `${d.T} turns`), d.wall_seconds != null ? el("span", {}, `${Math.round(d.wall_seconds)}s wall`) : null,
+      el("span", {}, d.guards_available ? `first non-terminal guard: ${d.first_nonterminal_guard ?? "none"}` : "guards not implemented yet")),
+    d.task ? el("div", { class: "task" }, d.task) : null,
+    d.exception ? el("pre", {}, JSON.stringify(d.exception, null, 2)) : null,
+    sparkline(d), el("h2", {}, "Turns"), ...d.turns.map((t) => card(t, d))].filter((n) => n != null));
+}
+
+$("#filter").oninput = renderRuns;
+$("#outcome").onchange = renderRuns;
+loadRuns();
+</script>
+</body>
+</html>
