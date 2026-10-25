@@ -50,3 +50,44 @@ Dated log of measurements and go/no-go decisions. `scripts/measure_w0.py --notes
   with G3 excluded, and with "unrecovered G3" (no api_docs read or login within 2 turns).
 - The guard-vs-pass/fail firing-rate gap on dev runs (failed runs fire more often) is not the Q1
   claim and is based on only 10 passed runs; Q1 is whether g lands near t*.
+
+### 2026-10-25 Local mini-screen: 9B-4bit vs 4B-4bit, same 21 tasks (7 scenarios)
+
+Caveat: 4-bit MLX, pipeline sanity check, not official W0. No SGC/TGC here is a K0 result; the K0
+anchor stays the full-precision GPU run. These 21 tasks are in the dev set (not Q1-eligible).
+
+- Student `mlx-community/Qwen3.5-9B-4bit` (`mlx_lm.server`, max-tokens 4096), proxy log
+  `runs/proxy/mlx_9b_mini.jsonl`. Jobs: `w0-mini-9b-mlx` (seeds 1-2, conc 2, 94 min),
+  `w0-mini-9b-mlx-s34` (seeds 3-4, conc 3, 56 min), `-retry-a`/`-retry-b` (re-ran 5 slots).
+- Infra: Harness-Zero's student client timeout is 120 s (x3 retries). Long 9B reasoning turns at
+  conc 2 exceeded it and killed 5 trials of seeds 1-2 (`OpenAITimeoutError`, no reward). Those 5 are
+  dropped and re-run with `--student-timeout 600` (new launcher flag); 0 timeouts at 600 s in 47 trials.
+  Use `--student-timeout 600` for every 9B job.
+- `scripts/compare_jobs.py --drop-timeouts --a 4B runs/proxy/mlx_4b_smoke.jsonl jobs/w0-mini-4b-mlx
+  --b 9B runs/proxy/mlx_9b_mini.jsonl jobs/w0-mini-9b-mlx jobs/w0-mini-9b-mlx-s34 jobs/w0-mini-9b-mlx-retry-{a,b}`:
+
+| metric | 4B (2 seeds) | 9B (4 seeds) |
+|---|---|---|
+| per-task passes | 0/2: 15, 1/2: 2, 2/2: 4 | 0/4: 3, 1/4: 0, 2/4: 3, 3/4: 0, 4/4: 15 |
+| K1 share, p_hat in [0.25, 0.75] | 2/21 = 0.10 | 3/21 = 0.14 |
+| TGC (sanity only) | 23.8 | 78.6 |
+| parse failures, % of turns | 0.7 of 766 | 0.1 of 1716 |
+| 40-turn exhaustions | 6 / 42 | 13 / 84 |
+| median wall per episode (s) | 125 | 201 (170 at conc 2, 226 at conc 3) |
+| throughput (min per episode, wall) | 1.2 (conc 2) | 1.3 (conc 3; conc 2 was 2.2 incl. timeouts) |
+| median prompt tokens / request | 9134 | 9420 |
+| completion tokens / episode | 4162 | 3509 |
+
+- Per-task agreement: 9B solves every task 4B solves (6), plus 12 more; 3 tasks (all of scenario
+  22cc237) are 0 for both. 9B's mixed tasks: 0d8a4ee_1, 2a163ab_2, 2a163ab_3 (2/4 each).
+- Outcomes cluster by scenario (22cc237 0/12; most others 4/4 on every variant), so 21 tasks is
+  effectively 7 draws; the K1 share has a wide interval.
+
+**Decision (2026-10-25):** both models are below K1's 0.20 on this mini set, failing in opposite
+directions (4B: mostly 0/2; 9B: mostly 4/4). Use 9B for the overnight train147 screen: it is the
+model whose pass band can be widened by harder scenarios, it parses cleanly, and its failures are
+genuine (turn limits, wrong answers) rather than inability to use the API. Screen train147 x 2 seeds
+at conc 3 with `--student-timeout 600` (~294 episodes x 1.3 min ~ 6.5 h), then +2 seeds on tasks
+with 1/2, and +6 on mixed tasks to reach K1's 8 samples. If the train147 K1 share is still < 0.20,
+the plan's rule applies (switch to SpreadsheetBench Verified). The Monte Carlo referee
+(~6000 episodes, ~1.3 min each on this Mac = ~130 h) belongs on GPU, not the Mac.
