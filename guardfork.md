@@ -40,6 +40,18 @@ Arnav fills the blanks below (and the per-guard / no-G3 expectations) before `sc
   - G5 `UNVERIFIED_COMPLETION` (only if not G1): no tool call while completion status is not True, or `complete_task` without a post-write verification read.
   - `MAX_TURNS` / `CONTEXT_OVERFLOW` / `REPLAY_DIVERGED` are `TrajectoryStatus` values, not localizers.
 
+## Compute Plan
+
+- **Mac (M4 Pro 48 GB, `mlx_lm.server`, 4-bit, arm64 AppWorld images):** pipeline checks, train147 pass-band screens, dev-set work, human failure labels, the LLM-judge baseline, the DPO plumbing dry run, and a 2-failure referee smoke test at K=4 to price the GPU run. Not used for K0 or any headline number.
+- **Lambda GPU VMs (vLLM, full-precision weights, amd64 images rebuilt on the VM):** K0 anchor (9B B0 on test_normal), the Q1 referee at scale (~6000 episodes, ~130 h on the Mac), training arms, and 5-seed test_normal evals. GCP is the fallback. Same `config/sampling.toml` through the same proxy on both machines; one serving stack per machine.
+
+## Known Deviations from Harness-Zero (methods section)
+
+- **Sampling:** Harness-Zero's repo does not specify student sampling, and its client sends none. We fix sampling in `config/sampling.toml` (Qwen3.5 thinking-mode coding: temperature 0.6, top_p 0.95, top_k 20), injected by the proxy with a logged per-request seed. Our baseline therefore cannot be guaranteed to match their 26.8 SGC; we report the difference rather than tune toward it (or confirm their settings with the authors).
+- **Turn cap:** 40, equal to Harness-Zero's default `student_max_turns`; the paper's AppWorld value is to be confirmed.
+- **Client timeout:** 600 s per model request (their default is 120 s, which kills long 9B reasoning turns locally).
+- **Local runs** use 4-bit MLX weights; all reported numbers come from full-precision vLLM runs.
+
 ## Harbor-Native Forking & Oracle Definition
 
 - **Replay-from-zero forks in Harbor (`ForkReplayAppWorldAgent`):** each continuation is an isolated Harbor trial (`docker compose -p fork_<uuid>`, `PYTHONHASHSEED=0`, `down -v` in `finally`). `initialize` runs `appworld task` + `PROFILE_COMMAND`, checks sha256 against `appworld_initial_context.json`, replays commands 1..t−1 via `backend.aexecute` asserting exact observation equality, seeds the logged message prefix, and runs the inner graph with `max_turns = 40 − (t − 1)`. Graded only by Harbor's official verifier. Turns after `session_reset=True` or any `agent "<task>"` subagent call are non-forkable.

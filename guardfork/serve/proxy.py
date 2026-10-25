@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import threading
 import time
 import urllib.error
@@ -23,27 +24,26 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from guardfork.sampling import DEFAULT_SAMPLING_PATH, SamplingConfig, load_sampling
+
 HOP_HEADERS = {"connection", "keep-alive", "transfer-encoding", "content-length", "host"}
 
 
-# Harness-Zero sends no sampling fields, and mlx_lm.server defaults to temperature 0.0,
-# which makes every seed the same greedy run. Qwen3.5 model card, thinking mode, coding.
-SAMPLING_PRESETS: dict[str, dict[str, float]] = {
-    "qwen-thinking-code": {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.0},
-    "none": {},
-}
-
-
 def inject_request_fields(body: dict[str, Any], backend: str,
-                          sampling: dict[str, float] | None = None) -> dict[str, Any]:
-    """Return a copy of a chat-completions body with token-id/logprob requests and default
-    sampling parameters added.
+                          sampling: SamplingConfig | None = None,
+                          rng: random.Random | None = None) -> dict[str, Any]:
+    """Return a copy of a chat-completions body with token-id/logprob requests and the
+    sampling fields from `config/sampling.toml` added (plus a fresh logged seed).
 
-    Never overrides a field the client already set.
+    Harness-Zero sends no sampling fields, and mlx_lm.server defaults to temperature 0.0, so
+    without this every seed would be the same greedy run. Never overrides a client field.
     """
     out = dict(body)
-    for key, value in (sampling or {}).items():
-        out.setdefault(key, value)
+    if sampling is not None:
+        for key, value in sampling.request.items():
+            out.setdefault(key, value)
+        if sampling.seed_per_request:
+            out.setdefault("seed", (rng or random).randrange(2**31))
     out.setdefault("logprobs", True)
     if backend == "vllm":
         out.setdefault("return_token_ids", True)
@@ -102,8 +102,9 @@ class JsonlLog:
 
 
 def make_handler(upstream: str, backend: str, log: JsonlLog, tag: str | None, timeout: float,
-                 sampling: dict[str, float] | None = None):
+                 sampling: SamplingConfig | None = None):
     upstream = upstream.rstrip("/")
+    sampling_meta = sampling.summary() if sampling is not None else None
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -133,6 +134,7 @@ def make_handler(upstream: str, backend: str, log: JsonlLog, tag: str | None, ti
             record: dict[str, Any] = {
                 "id": str(uuid.uuid4()),
                 "ts": time.time(),
+                "sampling": sampling_meta,
                 "tag": self.headers.get("x-guardfork-tag") or tag,
                 "backend": backend,
                 "path": self.path,
@@ -211,7 +213,7 @@ def serve(
     host: str = "127.0.0.1",
     tag: str | None = None,
     timeout: float = 600.0,
-    sampling: dict[str, float] | None = None,
+    sampling: SamplingConfig | None = None,
 ) -> ThreadingHTTPServer:
     handler = make_handler(upstream, backend, JsonlLog(log_path), tag, timeout, sampling)
     return ThreadingHTTPServer((host, port), handler)
@@ -227,14 +229,15 @@ def main() -> None:
     ap.add_argument("--log", type=Path, required=True)
     ap.add_argument("--tag", default=None, help="label written into every record")
     ap.add_argument("--timeout", type=float, default=600.0)
-    ap.add_argument("--sampling", choices=sorted(SAMPLING_PRESETS), default="qwen-thinking-code",
-                    help="default sampling fields injected when the client omits them")
+    ap.add_argument("--sampling-config", default=str(DEFAULT_SAMPLING_PATH),
+                    help="sampling TOML injected into every chat request ('none' = server "
+                         "defaults, which on mlx_lm.server means greedy)")
     args = ap.parse_args()
-    sampling = SAMPLING_PRESETS[args.sampling]
+    sampling = load_sampling(args.sampling_config)
     server = serve(args.upstream, args.port, args.log, args.backend, args.host, args.tag,
                    args.timeout, sampling)
     print(f"guardfork proxy {args.host}:{args.port} -> {args.upstream} ({args.backend}), "
-          f"sampling={args.sampling} {sampling}, log={args.log}", flush=True)
+          f"sampling={sampling.summary()}, log={args.log}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

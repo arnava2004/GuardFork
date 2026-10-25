@@ -11,10 +11,13 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 FORK_AGENT = "guardfork.fork.fork_agent:ForkReplayAppWorldAgent"
 GUARDFORK_ROOT = Path(__file__).resolve().parents[1]
+if str(GUARDFORK_ROOT) not in sys.path:
+    sys.path.insert(0, str(GUARDFORK_ROOT))
 
 
 def harbor_env(hz_root: Path) -> dict[str, str]:
@@ -169,7 +172,41 @@ def main() -> int:
         replay_plan_path=args.replay_plan.resolve() if args.replay_plan else None,
         student_timeout=args.student_timeout,
     )
-    return subprocess.run(cmd, cwd=hz_root, env=env, check=False).returncode
+    code = subprocess.run(cmd, cwd=hz_root, env=env, check=False).returncode
+    write_run_record(args.output_dir.resolve() / args.job_name, hz_root, {
+        "student_model": args.student_model, "student_base_url": args.student_base_url,
+        "student_max_turns": args.student_max_turns, "student_timeout": args.student_timeout,
+        "attempts": args.attempts, "concurrency": args.concurrency,
+        "student_harness_dir": args.student_harness_dir,
+        "replay_plan": str(args.replay_plan) if args.replay_plan else None,
+        "n_tasks": len(tasks), "harbor_exit_code": code,
+    })
+    return code
+
+
+def _git_sha(repo: Path) -> str:
+    try:
+        return subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                                       text=True, stderr=subprocess.DEVNULL).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return "unknown"
+
+
+def write_run_record(job_dir: Path, hz_root: Path, launch: dict) -> None:
+    """`guardfork_run.json` beside Harbor's job files: launch config, sampling, commits.
+    Sampling is applied by the proxy from config/sampling.toml; keep the two in sync."""
+    from guardfork.sampling import load_sampling
+
+    if not job_dir.is_dir():
+        return
+    record = {
+        **launch,
+        "sampling_expected": load_sampling().summary(),
+        "guardfork_commit": _git_sha(GUARDFORK_ROOT),
+        "harness_zero_commit": _git_sha(hz_root),
+        "pythonhashseed": "0",
+    }
+    (job_dir / "guardfork_run.json").write_text(json.dumps(record, indent=2) + "\n")
 
 
 if __name__ == "__main__":

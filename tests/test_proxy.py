@@ -18,13 +18,18 @@ def test_inject_never_overrides():
     assert "return_token_ids" not in inject_request_fields({}, "mlx")
 
 
-def test_sampling_defaults_injected_but_never_override():
-    from guardfork.serve.proxy import SAMPLING_PRESETS
+def test_sampling_config_injected_with_logged_seed_but_never_overrides():
+    import random
 
-    preset = SAMPLING_PRESETS["qwen-thinking-code"]
-    out = inject_request_fields({"messages": []}, "mlx", preset)
-    assert out["temperature"] == 0.6 and out["top_k"] == 20
-    assert inject_request_fields({"temperature": 0.0}, "mlx", preset)["temperature"] == 0.0
+    from guardfork.sampling import load_sampling
+
+    cfg = load_sampling()
+    assert cfg.request["temperature"] == 0.6 and cfg.seed_per_request and len(cfg.sha256) == 64
+    out = inject_request_fields({"messages": []}, "mlx", cfg, random.Random(0))
+    assert out["temperature"] == 0.6 and out["top_k"] == 20 and isinstance(out["seed"], int)
+    kept = inject_request_fields({"temperature": 0.0, "seed": 7}, "vllm", cfg)
+    assert kept["temperature"] == 0.0 and kept["seed"] == 7
+    assert "temperature" not in inject_request_fields({}, "mlx", load_sampling("none"))
 
 
 def test_extract_vllm_and_mlx_shapes():

@@ -109,3 +109,19 @@ the plan's rule applies (switch to SpreadsheetBench Verified). The Monte Carlo r
   AppWorld cap is still to be confirmed against the paper text.
 - Open: Harness-Zero's own sampling settings for its Qwen students are not in the repo; if the
   train147 baseline stays far above their 26.8 SGC (test_normal), diff configs before the referee.
+
+### 2026-10-25 03:30 Sampling made explicit; overnight plan
+
+- `config/sampling.toml` (qwen-thinking-code-v1) is now the single source of student sampling; the
+  proxy loads it (`--sampling-config`), adds a logged per-request seed, and stamps each proxy record
+  with the config name + sha. Launches write `guardfork_run.json` (config, commits, PYTHONHASHSEED).
+- Running: `w0-screen-9b-t06-s12` (125 non-dev train147 tasks x 2 seeds, sampled, concurrency 3),
+  started on the pre-config proxy with identical values (temp 0.6 / top_p 0.95 / top_k 20) but no
+  per-request seed. Early: 16 graded, 5 passed, 0 turn-limit. Swap 7.5 GB used but 49% memory free
+  (stale swap, not active pressure).
+- Queued (`scripts/queue_after_screen.sh`): restart proxy from config, then `w0-dev-9b-t06`
+  (21 dev tasks x 4 sampled seeds) to re-check guards-v1 false alarms; v1's freeze decisions were
+  measured on greedy, partly duplicated runs. Rules unchanged -> freeze stands; a flip is still a
+  dev-set decision (no leakage).
+- Referee concurrency: if tonight's screen shows timeouts or slow (crawling, not looping) 40-turn
+  runs, run the referee at concurrency 2.
