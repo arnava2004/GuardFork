@@ -170,3 +170,16 @@ the plan's rule applies (switch to SpreadsheetBench Verified). The Monte Carlo r
   swap-crawl before the referee; drop referee concurrency to 2 if any look like crawling).
 - measure_w0 fixed: SGC is now per seed (job x attempt) and K1 reports "not measurable" below 8
   samples instead of FAIL.
+
+### 2026-10-25 Open before the first Lambda run
+
+- **Completion-length parity:** on the Mac the proxy caps mlx completions at 4096 tokens; on vLLM
+  there is no cap. Before K0, move `max_tokens` into `config/sampling.toml` so both machines use the
+  same cap (pick it from the Mac proxy logs: share of completions that hit 4096). Not changed now to
+  keep the running dev re-check on one config.
+- Lambda scripts (`scripts/vm_setup.sh`, `scripts/vm_serve.sh`, runbook L0-L6) are written but not
+  run; VERIFY items: compose fallback package, 131072-token context fitting GPU memory, non-Qwen
+  parser flags. Per AGENTS rule 7, only the 2-run referee pricing smoke runs before W0 passes
+  kill.toml; K0 (9B full precision on test_normal) is the first Lambda job.
+- Judge baseline and DPO exporter are written; both need the Mac free (judge: ~17 GB Qwen3-30B-A3B
+  server; DPO: re-fork with sampling, since all existing forks were greedy and give no real pairs).
