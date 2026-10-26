@@ -56,10 +56,23 @@ that date are amendments, listed at the bottom with dates.
 `lvrl_style_error_marker` (floor: explicit strings `Traceback`, `Execution failed`,
 `Response status code is 4`, `Error:`), `random`, `last_turn`, `entropy_peak`, `guards_raw`
 (first G1–G5), `guards_recovery_aware` (`g3_unrecovered` + G2/G4/G5), per-guard, `no_g3`,
-`open_judge`, `bisection_fixed`, `bisection_early_stop`, `elpo_bel`, `guard_bayesect`
-(Laplace lag prior + sequential Beta stopping, Arnav), and human labels where available.
-Primary metric: Hit(w = 1) minus analytic random, scenario-clustered bootstrap; cost in
-continuations per failure alongside.
+LLM judges, `bisection_fixed`, `bisection_early_stop`, `elpo_bel`, `guard_bayesect` (Laplace
+lag prior + sequential Beta stopping, Arnav) with the open-judge distribution as likelihood,
+and the same with the Claude distribution as a separate **eval-only** row, plus human labels
+where available. Primary metric: Hit(w = 1) minus analytic random, scenario-clustered
+bootstrap; cost in continuations per failure alongside.
+
+**LLM judges (zero rollouts, one call per failed run, `config/judges.toml`):**
+- `judge_open` (primary): hosted Qwen3-235B (OpenRouter, pinned id).
+- `judge_local` (optional cheap row): Qwen3-30B-A3B-4bit on the Mac.
+- `judge_claude` (eval-only frontier reference): one pinned Claude Sonnet snapshot, non-training
+  API. Never a training signal; continuations probed only because of its pick are `eval_only`.
+- All judges get the identical prompt (`config/judge_prompt.md`, frozen as `judge-v1` on the
+  design split) with the identical, logged transcript truncation, and return a probability
+  distribution over turns (top-3 with p); the argmax is the point pick for Hit(w), the
+  distribution is the prior likelihood for `guard_bayesect`. No judge promotion rule: rows are
+  reported side by side. Per judge we report the pick-position histogram (first / middle / last
+  third, last turn) and calibration (stated p vs observed hit).
 
 ## Predictions (Arnav fills before the first evaluation-scenario referee run)
 
@@ -68,6 +81,8 @@ continuations per failure alongside.
 - P3 share of failures hopeless from s1: __% (4B), __% (9B).
 - P4 first-third agreement with t\* (LVRL's weak zone): guards __% vs error-marker floor __%.
 - P5 oracle test-retest (split-half, ±1 turn): __%.
+- P6 `judge_open` vs `judge_claude` agreement within ±1 turn: __%; Hit(w=1) gap: __ pp.
+- P7 judge calibration: among picks with stated p ≥ 0.7, observed Hit(w=1) = __% (open), __% (Claude).
 
 ## Amendments
 
