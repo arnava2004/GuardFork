@@ -55,6 +55,43 @@ def test_referee_bisects_to_collapse_turn(tmp_path):
     assert len(json.loads((out / "forks.json").read_text())) == 8 * len(launched)
 
 
+def test_referee_records_probe_reasons_and_tags_eval_only(tmp_path):
+    rec = _failed_run(T=12, guard_at=4)
+    launch, launched = _fake_launch(true_t_star=2, tmp=tmp_path, K=4)
+    res = run_referee(rec, base_pass=(4, 8), K=4, launch=launch, plans_dir=tmp_path / "plans",
+                      max_probes=12, extra_turns={"judge_open": [5], "judge_claude": [10]})
+    # initial window {1, g-3=1, g-1=3, g=4, g+1=5}; judge_open adds {4,5,6}; claude {9,10,11}
+    assert res.probe_reasons[1] == ["initial"]
+    assert res.probe_reasons[4] == ["initial", "guard", "judge_open"]
+    assert res.probe_reasons[5] == ["initial", "judge_open"]
+    assert res.probe_reasons[6] == ["judge_open"]
+    for t in (9, 10, 11):
+        assert res.probe_reasons[t] == ["judge_claude"]
+    bisected = [t for t, r in res.probe_reasons.items() if r == ["bisection"]]
+    assert bisected, "bisection should still refine between the mandatory windows"
+    conts = res.continuations
+    claude_only = [c for c in conts if c["eval_only"]]
+    assert {c["turn"] for c in claude_only} == {9, 10, 11}
+    assert all(c["reasons"] == ["judge_claude"] for c in claude_only)
+    assert all(not c["eval_only"] for c in conts if c["turn"] not in (9, 10, 11))
+    out = write_results(res, tmp_path / "results")
+    oracle = json.loads((out / "oracle.json").read_text())
+    assert oracle["probe_reasons"]["10"] == ["judge_claude"]
+    assert oracle["n_eval_only"] == 3 * 4
+    forks = json.loads((out / "forks.json").read_text())
+    assert sum(f["eval_only"] for f in forks) == 12 and all("reasons" in f for f in forks)
+    assert res.t_star == 2
+
+
+def test_referee_extra_turns_shared_with_guard_window_are_not_eval_only(tmp_path):
+    rec = _failed_run(T=8, guard_at=4)
+    launch, _ = _fake_launch(true_t_star=3, tmp=tmp_path)
+    res = run_referee(rec, base_pass=(4, 8), K=8, launch=launch, plans_dir=tmp_path / "plans",
+                      extra_turns={"judge_claude": [4]})
+    assert res.probe_reasons[4] == ["initial", "guard", "judge_claude"]
+    assert not any(c["eval_only"] for c in res.continuations)
+
+
 def test_referee_skips_runs_without_nonterminal_guard(tmp_path):
     rec = _failed_run(T=5, guard_at=99)
     launch, launched = _fake_launch(1, tmp_path)

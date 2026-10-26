@@ -1,0 +1,49 @@
+# LLM-judge slots (guardfork.judge.load_judges). All slots share the prompt template
+# config/judge_prompt.md (frozen in config/judge_freeze.toml) and the [common] truncation.
+# API keys are read from the environment variable named in api_key_env (never from this
+# file; scripts/llm_judge.py --api-key-env overrides the name). Prices are USD per million
+# tokens and only feed the cost estimate / --max-usd stop.
+
+[common]
+obs_chars = 1500            # per-observation head+tail truncation (guardfork.judge.truncate)
+max_prompt_chars = 60000    # whole middle turns are elided beyond this (prepare_prompt)
+timeout = 900.0
+
+[judge_open]
+# Primary row: hosted open-weight judge via OpenRouter (PREREGISTRATION.md "LLM judges").
+provider = "openai_compat"
+base_url = "https://openrouter.ai/api/v1"
+model = "qwen/qwen3-235b-a22b-2507"   # VERIFY: exact OpenRouter id on the model page
+api_key_env = "OPENROUTER_API_KEY"
+temperature = 0.0
+max_tokens = 4096
+usd_per_m_input = 0.10    # VERIFY: OpenRouter price at run time
+usd_per_m_output = 0.10   # VERIFY
+
+[judge_local]
+# Optional cheap row: the Mac judge (serve with mlx_lm.server --port 8200).
+provider = "openai_compat"
+base_url = "http://127.0.0.1:8200/v1"
+model = "mlx-community/Qwen3-30B-A3B-4bit"
+api_key_env = ""          # no key: bearer placeholder "local"
+temperature = 0.0
+max_tokens = 4096
+usd_per_m_input = 0.0
+usd_per_m_output = 0.0
+
+[judge_local.extra_body.chat_template_kwargs]
+enable_thinking = false
+
+[judge_claude]
+# Eval-only frontier reference (AGENTS.md rule 3): diagnostic Q1 row only, non-training
+# API; its records carry eval_only = true and continuations probed only because of its
+# pick are excluded from pair export.
+provider = "anthropic"
+base_url = "https://api.anthropic.com"
+model = "claude-sonnet-4-5"   # VERIFY: pin the dated snapshot id via GET /v1/models at setup
+api_key_env = "ANTHROPIC_API_KEY"
+temperature = 0.0
+max_tokens = 4096
+eval_only = true
+usd_per_m_input = 3.0     # VERIFY: current list price
+usd_per_m_output = 15.0   # VERIFY

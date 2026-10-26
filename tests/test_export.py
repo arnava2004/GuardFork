@@ -207,3 +207,20 @@ def test_pairs_from_plan_and_forks_json(make_trial, tmp_path):
     assert len(pairs) == 1 and pairs[0].continuation_trial == "fork-t2/aaaaaaa_1__k0"
     pairs, stats = pairs_from_forks_json(fj, {}, root=tmp_path)
     assert pairs == [] and "not found" in stats.skipped_source[0]
+
+
+def test_forks_json_eval_only_continuations_are_skipped(make_trial, tmp_path):
+    source, conts = _records(make_trial, [(GOOD, 1.0, "b"), (BAD, 0.0, "c")])
+    forks = [{"turn": 2, "k": k, "reward": c.reward, "first_action": None,
+              "trial_dir": str(c.trial_dir), "reasons": ["judge_claude"], "eval_only": True}
+             for k, c in enumerate(conts)]
+    fj = tmp_path / "results" / "base" / "aaaaaaa_1__src" / "forks.json"
+    fj.parent.mkdir(parents=True)
+    fj.write_text(json.dumps(forks))
+    pairs, stats = pairs_from_forks_json(fj, {"base/aaaaaaa_1__src": source}, root=tmp_path)
+    assert pairs == [] and stats.dropped_eval_only == 2 and stats.continuations == 0
+    forks[0]["eval_only"] = False
+    forks[0]["reasons"] = ["judge_claude", "bisection"]
+    fj.write_text(json.dumps(forks))
+    pairs, stats = pairs_from_forks_json(fj, {"base/aaaaaaa_1__src": source}, root=tmp_path)
+    assert len(pairs) == 1 and stats.dropped_eval_only == 1

@@ -39,13 +39,14 @@ WINDOWS = (0, 1, 2, 3)
 
 def candidate_grid(T: int, *, step: int, guard_turns: Iterable[int | None] = (),  # noqa: N803
                    judge_turn: int | None = None, entropy_turn: int | None = None,
-                   ) -> list[int]:
+                   judge_turns: Iterable[int | None] = ()) -> list[int]:
     """Thinned grid every `step` turns from 1, plus {x-1, x, x+1} windows around every guard
-    first firing, the judge pick and the entropy peak, clipped to [1, T], sorted."""
+    first firing, every judge pick (`judge_turns`, one per judge slot; `judge_turn` kept for
+    compatibility) and the entropy peak, clipped to [1, T], sorted."""
     if T < 1 or step < 1:
         raise ValueError("need T >= 1 and step >= 1")
     grid = set(range(1, T + 1, step))
-    for x in (*guard_turns, judge_turn, entropy_turn):
+    for x in (*guard_turns, judge_turn, *judge_turns, entropy_turn):
         if x is None:
             continue
         grid.update(u for u in (x - 1, x, x + 1) if 1 <= u <= T)
@@ -239,6 +240,15 @@ class SnappingProbeTable:
 
 # ---------------------------------------------------------------------------- policies
 
+OPEN_JUDGE_SLOT = "judge_open"
+CLAUDE_JUDGE_SLOT = "judge_claude"
+JUDGE_LIKELIHOOD_FLOOR = 0.05  # uniform mixture so no turn gets zero judge likelihood
+# Rows that may never feed training or checkpoint selection (AGENTS.md rule 3).
+POLICY_FLAGS: dict[str, dict[str, bool]] = {
+    "claude_judge": {"eval_only": True},
+    "guard_bayesect_claude_prior": {"eval_only": True},
+}
+
 
 @dataclass
 class SearchInputs:
@@ -246,10 +256,12 @@ class SearchInputs:
 
     traj: Trajectory
     firings: list[GuardFiring] = field(default_factory=list)
-    judge_turn: int | None = None
+    judge_turn: int | None = None  # legacy single judge pick (open judge)
     entropy_turn: int | None = None
     v_s1: float = 0.5
     seed: int = 0
+    judge_turns: dict[str, int | None] = field(default_factory=dict)  # slot -> argmax pick
+    judge_dists: dict[str, list[float]] = field(default_factory=dict)  # slot -> P(t*) 1..T
 
     @classmethod
     def from_trajectory(cls, traj: Trajectory, **kw: Any) -> SearchInputs:
@@ -259,6 +271,19 @@ class SearchInputs:
     @property
     def T(self) -> int:  # noqa: N802
         return self.traj.T
+
+    def judge_pick(self, slot: str) -> int | None:
+        """Argmax pick of a judge slot; `judge_open` falls back to the legacy `judge_turn`."""
+        if slot in self.judge_turns:
+            return self.judge_turns[slot]
+        if slot == OPEN_JUDGE_SLOT:
+            return self.judge_turn
+        return None
+
+    def judge_dist(self, slot: str) -> list[float] | None:
+        """Distribution of a judge slot when it has length T (None otherwise)."""
+        dist = self.judge_dists.get(slot)
+        return list(dist) if dist is not None and len(dist) == self.T else None
 
 
 Policy = Callable[[SearchInputs, ProbeTable], int | None]
@@ -289,7 +314,23 @@ def guards_recovery_aware(inputs: SearchInputs, table: ProbeTable) -> int | None
 
 
 def open_judge(inputs: SearchInputs, table: ProbeTable) -> int | None:
-    return inputs.judge_turn
+    """Argmax pick of `judge_open` (legacy `judge_turn` when no slot dict is given)."""
+    return inputs.judge_pick(OPEN_JUDGE_SLOT)
+
+
+def judge_slot_pick(slot: str) -> Policy:
+    """Zero-rollout policy returning the argmax pick of one judge slot."""
+
+    def policy(inputs: SearchInputs, table: ProbeTable) -> int | None:
+        return inputs.judge_pick(slot)
+
+    policy.__name__ = f"{slot}_pick"
+    return policy
+
+
+def claude_judge(inputs: SearchInputs, table: ProbeTable) -> int | None:
+    """Eval-only row (`POLICY_FLAGS`): argmax pick of `judge_claude`."""
+    return inputs.judge_pick(CLAUDE_JUDGE_SLOT)
 
 
 def lvrl_style_error_marker(inputs: SearchInputs, table: ProbeTable) -> int | None:
@@ -438,18 +479,34 @@ def _binomial_pmf(s: int, k: int, p: float) -> float:
     return math.comb(k, s) * p**s * (1 - p) ** (k - s)
 
 
+def judge_likelihood(dist: list[float] | None, T: int,  # noqa: N803
+                     floor: float = JUDGE_LIKELIHOOD_FLOOR) -> list[float] | None:
+    """Judge distribution as a likelihood over t* = 1..T: `(1 - floor) * p_t + floor / T`,
+    so a confident judge never zeroes a candidate. None when `dist` is absent/mis-sized."""
+    if dist is None or len(dist) != T or T <= 0:
+        return None
+    z = sum(dist)
+    if z <= 0:
+        return None
+    return [(1 - floor) * p / z + floor / T for p in dist]
+
+
 def guard_bayesect(prior: bayes_prior.LaplaceGuardPrior, K: int, *,  # noqa: N803
                    tau: float = 0.5, step: int = 4, max_probes: int = 8,
-                   stop_delta: float = 0.05, p_dead: float | None = None) -> Policy:
+                   stop_delta: float = 0.05, p_dead: float | None = None,
+                   judge_slot: str | None = None) -> Policy:
     """Laplace guard prior + sequential Beta stopping + entropy-minimising next probe.
 
     Posterior over t* in 1..T starts from `prior.pmf(.., g, T)` with `g` the first
-    non-terminal guard firing. Each probe asks `next_bayes_probe`; at the chosen turn,
-    rollouts are consumed `step` at a time until `sequential_beta_stop` says the state is
-    decisive (or K is spent). The binomial likelihood of `(s, k)` under candidate c uses
-    `p = v_s1` for `t <= c` (alive) and `p = p_dead` (default `tau * v_s1 / 2`) for `t > c`.
-    Returns the posterior mode. Raises `NotImplementedError` until Arnav implements
-    `guardfork.stats.bayes_prior`.
+    non-terminal guard firing. With `judge_slot` (e.g. `judge_open`, `judge_claude`) the
+    judge's distribution from `inputs.judge_dists` multiplies that prior as a zero-rollout
+    likelihood (`judge_likelihood`, floored mixture) before any probe; the multiplication
+    is done here, so Arnav's `bayes_prior` stubs keep their signatures. Each probe asks
+    `next_bayes_probe`; at the chosen turn, rollouts are consumed `step` at a time until
+    `sequential_beta_stop` says the state is decisive (or K is spent). The binomial
+    likelihood of `(s, k)` under candidate c uses `p = v_s1` for `t <= c` (alive) and
+    `p = p_dead` (default `tau * v_s1 / 2`) for `t > c`. Returns the posterior mode.
+    Raises `NotImplementedError` until Arnav implements `guardfork.stats.bayes_prior`.
     """
     if K <= 0 or step <= 0:
         raise ValueError("K and step must be positive")
@@ -462,6 +519,11 @@ def guard_bayesect(prior: bayes_prior.LaplaceGuardPrior, K: int, *,  # noqa: N80
         g = localizer_turns(inputs.traj, inputs.firings)["all"]
         cands = list(range(1, T + 1))
         post = list(prior.pmf(cands, g, T))
+        lik = judge_likelihood(inputs.judge_dist(judge_slot), T) if judge_slot else None
+        if lik is not None:
+            post = [p * q for p, q in zip(post, lik, strict=True)]
+            z = sum(post)
+            post = [p / z for p in post] if z > 0 else [1 / T] * T
         probed: set[int] = set()
         for _ in range(max_probes):
             t = bayes_prior.next_bayes_probe(post, probed, T)
@@ -510,7 +572,10 @@ def simulate(policies: Mapping[str, Policy], table: ProbeTable, t_star: int | No
 
 def default_policies(K: int = 8, *, prior: bayes_prior.LaplaceGuardPrior | None = None,  # noqa: N803
                      ) -> dict[str, Policy]:
-    """The pre-registered localizer ladder (guard_bayesect only when a prior is given)."""
+    """The pre-registered localizer ladder (guard_bayesect rows only when a prior is given:
+    plain, `_open_prior` with the `judge_open` distribution, `_claude_prior` with the
+    `judge_claude` distribution). `claude_judge` and `guard_bayesect_claude_prior` are
+    eval-only rows (`POLICY_FLAGS`)."""
     ladder: dict[str, Policy] = {
         "lvrl_style_error_marker": lvrl_style_error_marker,
         "random": random_turn,
@@ -519,10 +584,19 @@ def default_policies(K: int = 8, *, prior: bayes_prior.LaplaceGuardPrior | None 
         "guards_raw": guards_raw,
         "guards_recovery_aware": guards_recovery_aware,
         "open_judge": open_judge,
+        "claude_judge": claude_judge,
         "bisection_fixed": bisection_fixed(K),
         "bisection_early_stop": bisection_early_stop(K),
         "elpo_bel": elpo_bel(K),
     }
     if prior is not None:
         ladder["guard_bayesect"] = guard_bayesect(prior, K)
+        ladder["guard_bayesect_open_prior"] = guard_bayesect(prior, K,
+                                                             judge_slot=OPEN_JUDGE_SLOT)
+        ladder["guard_bayesect_claude_prior"] = guard_bayesect(prior, K,
+                                                               judge_slot=CLAUDE_JUDGE_SLOT)
     return ladder
+
+
+def eval_only_policies(policies: Mapping[str, Policy]) -> set[str]:
+    return {name for name in policies if POLICY_FLAGS.get(name, {}).get("eval_only")}

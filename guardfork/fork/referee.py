@@ -3,12 +3,18 @@ continuations each, bisect to the turn where success odds collapse, and record t
 
 `launch(plan, K, job_name) -> job_dir` is injected so the loop is testable offline; the
 real launcher runs one Harbor job with `n_attempts = K` from a ReplayPlan.
+
+Every probed turn records why it was probed (`reasons`: `initial`, `guard`, `bisection`,
+plus any named `extra_turns` source such as `judge_open` / `judge_claude`). Continuations
+whose probe reasons are only `{"judge_claude"}` are tagged `eval_only: true` in forks.json
+(AGENTS.md rule 3: launched only because of the proprietary eval-only judge, so they never
+enter pair export); their outcomes still count for the Q1 oracle value table.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,6 +27,13 @@ from guardfork.telemetry.to_trajectory import to_trajectory
 from guardfork.telemetry.trials import TrialRecord, iter_trials
 
 Launch = Callable[[Path, int, str], Path]
+EVAL_ONLY_SOURCES = frozenset({"judge_claude"})
+
+
+def is_eval_only(reasons: Iterable[str]) -> bool:
+    """True when every reason for probing a turn is an eval-only source."""
+    reasons = set(reasons)
+    return bool(reasons) and reasons <= EVAL_ONLY_SOURCES
 
 
 @dataclass
@@ -37,6 +50,7 @@ class RefereeResult:
     continuations: list[dict] = field(default_factory=list)
     env_seconds: float = 0.0
     skipped: str | None = None
+    probe_reasons: dict[int, list[str]] = field(default_factory=dict)
 
     def to_json(self) -> dict:
         return {
@@ -46,6 +60,8 @@ class RefereeResult:
             "t_star": self.t_star, "t_star_drop": self.t_star_drop,
             "guards_version": GUARDS_VERSION, "env_seconds": self.env_seconds,
             "n_continuations": len(self.continuations), "skipped": self.skipped,
+            "probe_reasons": {str(t): list(r) for t, r in sorted(self.probe_reasons.items())},
+            "n_eval_only": sum(bool(c.get("eval_only")) for c in self.continuations),
         }
 
 
@@ -64,7 +80,12 @@ def collect_job(job_dir: Path, turn: int) -> tuple[tuple[int, int], list[dict], 
 
 
 def run_referee(rec: TrialRecord, *, base_pass: tuple[int, int], K: int,  # noqa: N803
-                launch: Launch, plans_dir: Path, max_probes: int = 10) -> RefereeResult:
+                launch: Launch, plans_dir: Path, max_probes: int = 10,
+                extra_turns: Mapping[str, Iterable[int]] | None = None) -> RefereeResult:
+    """`extra_turns` maps a source name (e.g. `judge_open`, `judge_claude`) to turns whose
+    {x-1, x, x+1} windows are mandatory probes after the initial guard window and before
+    bisection (clipped to [1, T] and to forkable turns; `max_probes` still bounds the
+    total). Probe reasons accumulate per turn; see the module docstring for `eval_only`."""
     traj = to_trajectory(rec)
     first = first_nonterminal(evaluate(traj), traj.T)
     trial_id = f"{rec.job}/{rec.trial_dir.name}"
@@ -76,13 +97,37 @@ def run_referee(rec: TrialRecord, *, base_pass: tuple[int, int], K: int,  # noqa
         result.skipped = "no non-terminal guard"
         return result
     allowed = set(forkable_turns(traj))
-    queue = [t for t in initial_probes(first.turn, traj.T) if t in allowed]
+    wanted: dict[int, list[str]] = {}
 
-    def probe(t: int) -> None:
+    def want(t: int, reason: str) -> None:
+        if 1 <= t <= traj.T and t in allowed and reason not in wanted.setdefault(t, []):
+            wanted[t].append(reason)
+
+    for t in initial_probes(first.turn, traj.T):
+        want(t, "initial")
+    want(first.turn, "guard")
+    for source, turns in (extra_turns or {}).items():
+        for x in turns:
+            if x is None:
+                continue
+            for u in (x - 1, x, x + 1):
+                want(u, source)
+    queue = [t for t in initial_probes(first.turn, traj.T) if t in allowed]
+    queue += [t for t in sorted(wanted) if t not in queue]
+
+    def probe(t: int, reason: str | None = None) -> None:
+        reasons = list(wanted.get(t, []))
+        if reason and reason not in reasons:
+            reasons.append(reason)
+        result.probe_reasons[t] = reasons
         plan = build_replay_plan(rec, t)
         path = save_plan(plan, plans_dir / f"{rec.trial_dir.name}_t{t}.json")
         job_dir = launch(path, K, f"ref-{rec.trial_dir.name}-t{t}")
         value, conts, secs = collect_job(job_dir, t)
+        eval_only = is_eval_only(reasons)
+        for c in conts:
+            c["reasons"] = list(reasons)
+            c["eval_only"] = eval_only
         result.values[t] = value
         result.continuations += conts
         result.env_seconds += secs
@@ -100,7 +145,7 @@ def run_referee(rec: TrialRecord, *, base_pass: tuple[int, int], K: int,  # noqa
             result.skipped = f"bisection needs non-forkable turn {nxt}"
             break
         try:
-            probe(nxt)
+            probe(nxt, "bisection")
         except NotForkable:
             break
     v_hat = {t: p / g for t, (p, g) in result.values.items() if g}

@@ -1,4 +1,9 @@
-"""Offline preference-pair builders for RFT, T-DPO, G-REW, R-FORK-DPO, GF-DPO."""
+"""Offline preference-pair builders for RFT, T-DPO, G-REW, R-FORK-DPO, GF-DPO.
+
+Continuation actions carry `eval_only` (set from the referee's forks.json tag when the
+continuation was probed only because of the eval-only `judge_claude` pick, AGENTS.md rule
+3); `gf_dpo_pairs` and `rfork_dpo_pairs` drop them before pairing (`usable_continuations`).
+"""
 
 from __future__ import annotations
 
@@ -19,6 +24,12 @@ class Action:
     command: str | None
     reward: float | None = None
     turn: int | None = None
+    eval_only: bool = False
+
+
+def usable_continuations(cont: list[tuple[Action, float]]) -> list[tuple[Action, float]]:
+    """Continuations allowed into training pairs: everything not tagged `eval_only`."""
+    return [(a, r) for a, r in cont if not a.eval_only]
 
 
 @dataclass(frozen=True)
@@ -111,7 +122,7 @@ def gf_dpo_pairs(failures: Sequence[Trajectory],
         if g is None:
             continue
         original = _action(traj, g)
-        cont = continuations.get(traj.task_id, [])
+        cont = usable_continuations(continuations.get(traj.task_id, []))
         wins = [a for a, r in cont if r >= 1.0]
         losses = [a for a, r in cont if r < 1.0]
         if not wins:
@@ -138,7 +149,7 @@ def rfork_dpo_pairs(failures: Sequence[Trajectory],
         if t is None:
             continue
         original = _action(traj, t)
-        cont = continuations.get(traj.task_id, [])
+        cont = usable_continuations(continuations.get(traj.task_id, []))
         wins = [a for a, r in cont if r >= 1.0]
         if not wins:
             continue

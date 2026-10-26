@@ -165,6 +165,7 @@ class ExportStats:
     dropped_identical: int = 0
     dropped_prefix_mismatch: int = 0
     dropped_no_action: int = 0
+    dropped_eval_only: int = 0
     skipped_source: list[str] = field(default_factory=list)
     think_only: int = 0
 
@@ -429,7 +430,10 @@ def pairs_from_plan(plan: ReplayPlan | Path, fork_job: Path, *, root: Path,
 def pairs_from_forks_json(forks_json: Path, sources: dict[str, TrialRecord], *, root: Path,
                           **kwargs: Any) -> tuple[list[DPOPair], ExportStats]:
     """results/<job>/<trial>/forks.json: [{"turn", "k", "reward", "trial_dir", ...}].
-    `sources` maps "<job>/<trial>" to the source TrialRecord."""
+    `sources` maps "<job>/<trial>" to the source TrialRecord. Continuations tagged
+    `eval_only: true` by the referee (probed only because of the eval-only `judge_claude`
+    pick, AGENTS.md rule 3) are never exported; they are counted in
+    `stats.dropped_eval_only`."""
     trial_id = f"{forks_json.parent.parent.name}/{forks_json.parent.name}"
     stats = ExportStats()
     source = sources.get(trial_id)
@@ -438,6 +442,9 @@ def pairs_from_forks_json(forks_json: Path, sources: dict[str, TrialRecord], *, 
         return [], stats
     by_turn: dict[int, list[TrialRecord]] = {}
     for entry in json.loads(forks_json.read_text(encoding="utf-8")):
+        if entry.get("eval_only"):
+            stats.dropped_eval_only += 1
+            continue
         trial_dir = _resolve(Path(entry["trial_dir"]), root)
         rec = load_trial(trial_dir / "agent" / "teacher", trial_dir.parent.name)
         by_turn.setdefault(int(entry["turn"]), []).append(rec)

@@ -288,9 +288,53 @@ def test_simulate_reports_hits_and_costs_per_policy():
 def test_default_policies_ladder_names():
     names = set(ss.default_policies(8))
     assert {"lvrl_style_error_marker", "random", "last_turn", "entropy_peak", "guards_raw",
-            "guards_recovery_aware", "open_judge", "bisection_fixed", "bisection_early_stop",
-            "elpo_bel"} == names
-    assert "guard_bayesect" in ss.default_policies(8, prior=LaplaceGuardPrior())
+            "guards_recovery_aware", "open_judge", "claude_judge", "bisection_fixed",
+            "bisection_early_stop", "elpo_bel"} == names
+    with_prior = ss.default_policies(8, prior=LaplaceGuardPrior())
+    assert {"guard_bayesect", "guard_bayesect_open_prior",
+            "guard_bayesect_claude_prior"} <= set(with_prior)
+    assert ss.POLICY_FLAGS["guard_bayesect_claude_prior"] == {"eval_only": True}
+    assert ss.eval_only_policies(with_prior) == {"claude_judge", "guard_bayesect_claude_prior"}
+    assert "guard_bayesect_open_prior" not in ss.eval_only_policies(with_prior)
+
+
+def test_candidate_grid_accepts_multiple_judge_turns():
+    got = candidate_grid(12, step=4, guard_turns=[], judge_turns=[3, None, 11])
+    assert got == [1, 2, 3, 4, 5, 9, 10, 11, 12]
+    assert candidate_grid(12, step=4, judge_turn=3, judge_turns=[11]) == got
+
+
+def test_judge_slot_inputs_and_fallbacks():
+    inputs = SearchInputs(_plain(6), judge_turn=2)
+    assert ss.open_judge(inputs, None) == 2 and ss.claude_judge(inputs, None) is None
+    inputs = SearchInputs(_plain(6), judge_turn=2,
+                          judge_turns={"judge_open": 4, "judge_claude": 5},
+                          judge_dists={"judge_open": [0, 0, 0, 1, 0, 0], "judge_local": [1]})
+    assert ss.open_judge(inputs, None) == 4 and ss.claude_judge(inputs, None) == 5
+    assert ss.judge_slot_pick("judge_claude")(inputs, None) == 5
+    assert inputs.judge_dist("judge_open") == [0, 0, 0, 1, 0, 0]
+    assert inputs.judge_dist("judge_local") is None  # wrong length
+    lik = ss.judge_likelihood([0, 0, 0, 1, 0, 0], 6, floor=0.06)
+    assert lik == pytest.approx([0.01, 0.01, 0.01, 0.95, 0.01, 0.01])
+    assert ss.judge_likelihood(None, 6) is None and ss.judge_likelihood([0, 0], 6) is None
+
+
+def test_guard_bayesect_judge_prior_shifts_posterior(monkeypatch):
+    def fake_pmf(self, cands, g, T):  # noqa: N803
+        return [1.0 / len(cands)] * len(cands)
+
+    monkeypatch.setattr(LaplaceGuardPrior, "pmf", fake_pmf)
+    monkeypatch.setattr(ss.bayes_prior, "next_bayes_probe", lambda post, probed, T: None)
+    inputs = SearchInputs(_plain(10), v_s1=0.75,
+                          judge_dists={"judge_open": [0] * 6 + [1.0] + [0] * 3,
+                                       "judge_claude": [1.0] + [0] * 9})
+    tbl = SnappingProbeTable(10, values=STAIR)
+    # no probes (fake next returns None): the pick is the prior x judge-likelihood mode
+    assert guard_bayesect(LaplaceGuardPrior(), 8)(inputs, tbl) == 1  # uniform: ties -> 1
+    assert guard_bayesect(LaplaceGuardPrior(), 8, judge_slot="judge_open")(inputs, tbl) == 7
+    assert guard_bayesect(LaplaceGuardPrior(), 8, judge_slot="judge_claude")(inputs, tbl) == 1
+    assert guard_bayesect(LaplaceGuardPrior(), 8, judge_slot="judge_local")(inputs, tbl) == 1
+    assert tbl.continuations_used == 0
 
 
 def test_random_turn_is_seeded_and_non_terminal():

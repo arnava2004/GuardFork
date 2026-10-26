@@ -81,3 +81,65 @@ def test_undefined_t_star_counted():
     rows = build_rows([rec], {"j/trial0": {"t_star": None}})
     md = report_table(rows)
     assert "t* undefined: 1/1" in md
+
+
+def _judge(turn: int, T: int, p: float) -> dict:  # noqa: N803
+    dist = [(1 - p) / (T - 1)] * T
+    dist[turn - 1] = p
+    return {"turn": turn, "distribution": dist}
+
+
+def test_three_judge_rows_agreement_histogram_calibration(tmp_path):
+    from guardfork.judge import write_judge
+    from guardfork.q1.localization import (
+        judge_agreement,
+        judge_calibration,
+        pick_histogram,
+        pick_position,
+    )
+
+    recs = [_rec("aaaaaaa_1", 0.0, n=9, name=f"trial{i}", invalid_at=3) for i in range(3)]
+    oracle = {f"j/trial{i}": {"t_star": 3} for i in range(3)}
+    by_slot = {
+        "judge_open": {"j/trial0": _judge(3, 9, 0.95), "j/trial1": _judge(4, 9, 0.6),
+                       "j/trial2": _judge(9, 9, 0.75)},
+        "judge_claude": {"j/trial0": _judge(3, 9, 0.8), "j/trial1": _judge(7, 9, 0.5)},
+    }
+    rows = build_rows(recs, oracle, judge_results_by_slot=by_slot)
+    assert [r.localizers["judge_open"] for r in rows] == [3, 4, 9]
+    assert [r.localizers["judge_claude"] for r in rows] == [3, 7, None]
+    assert all(r.localizers["judge_local"] is None for r in rows)
+    assert rows[0].judge_dists["judge_open"][2] == 0.95 and "judge_local" not in rows[0].judge_dists
+
+    agree = judge_agreement(rows)
+    assert agree[("judge_open", "judge_claude")] == (1, 2)  # (3,3) agree; (4,7) do not
+    assert agree[("judge_open", "judge_local")] == (0, 0)
+    assert pick_position(3, 9) == "first" and pick_position(4, 9) == "middle"
+    assert pick_position(7, 9) == "last" and pick_position(9, 9) == "last"
+    hist = pick_histogram(rows)
+    assert hist["judge_open"] == {"n": 3, "first": 1, "middle": 1, "last": 1, "exact_last": 1}
+    assert hist["judge_claude"] == {"n": 2, "first": 1, "middle": 0, "last": 1, "exact_last": 0}
+    cal = judge_calibration(rows)
+    # open: p=0.95 hit, p=0.6 hit (|4-3|<=1), p=0.75 miss (9 vs 3)
+    assert cal["judge_open"] == [((0.0, 0.5), 0, 0), ((0.5, 0.7), 1, 1), ((0.7, 0.9), 0, 1),
+                                 ((0.9, 1.0), 1, 1)]
+    assert cal["judge_claude"] == [((0.0, 0.5), 0, 0), ((0.5, 0.7), 0, 1), ((0.7, 0.9), 1, 1),
+                                   ((0.9, 1.0), 0, 0)]
+
+    md = report_table(rows)
+    assert "| judge_open | 3 | 1/3" in md and "| judge_claude | 2 | 1/2" in md
+    assert "| judge_local | 0 |" in md and "| judge |" not in md
+    assert "| judge_open vs judge_claude | 2 | 1/2 (0.50) |" in md
+    assert "| judge_open | 3 | 1 | 1 | 1 | 1 |" in md
+    assert "| judge_open | – | 1/1 (1.00) | 0/1 (0.00) | 1/1 (1.00) |" in md
+
+    # the same via judge_<slot>.json files under a root; legacy judge.json appears as `judge`
+    for slot, results in by_slot.items():
+        for trial_id, entry in results.items():
+            write_judge({"trial_id": trial_id, "judge_id": slot, **entry}, tmp_path)
+    write_judge({"trial_id": "j/trial0", "turn": 2}, tmp_path)
+    rows = build_rows(recs, oracle, judge_root=tmp_path)
+    assert [r.localizers["judge_open"] for r in rows] == [3, 4, 9]
+    assert rows[0].localizers["judge"] == 2 and "judge" not in rows[1].localizers
+    md = report_table(rows)
+    assert "| judge | 1 |" in md and "| judge vs judge_open | 1 | 1/1" in md  # |2-3| <= 1

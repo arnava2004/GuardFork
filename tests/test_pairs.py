@@ -68,6 +68,20 @@ def test_gf_dpo_keeps_distinct_signature():
     assert len(pairs) == 1 and not pairs[0].signature_collision
 
 
+def test_eval_only_continuations_never_pair():
+    import random
+
+    from guardfork.train.pairs import rfork_dpo_pairs, usable_continuations
+
+    fail = _traj("aaaaaaa_1", _turn(1), _turn(2, invalid=[{"e": 1}]), _turn(3), _turn(4))
+    win = Action("", "", "print(apis.phone.search_contacts())", 1.0, 2, eval_only=True)
+    assert usable_continuations([(win, 1.0)]) == []
+    assert gf_dpo_pairs([fail], {"aaaaaaa_1": [(win, 1.0)]}) == []
+    assert rfork_dpo_pairs([fail], {"aaaaaaa_1": [(win, 1.0)]}, random.Random(0)) == []
+    ok = Action("", "", "print(apis.phone.search_contacts())", 1.0, 2)
+    assert len(gf_dpo_pairs([fail], {"aaaaaaa_1": [(win, 1.0), (ok, 1.0)]})) == 1
+
+
 def test_dpo_length_normalize_requires_lengths():
     with pytest.raises(ValueError):
         dpo_loss(0.0, 0.0, 0.0, 0.0, length_normalize=True)

@@ -21,5 +21,7 @@ the agent's run, as it actually continued, could no longer end in a correct comp
 task? Judge the action taken at that turn, not a later symptom of it. Turn numbers are
 1..{{N_TURNS}}.
 
-Answer with strict JSON only, no other text:
-{"turn": <integer>, "reason": "<one short sentence>"}
+Answer with strict JSON only, no other text. List up to 3 candidate turns, most likely first,
+each with your probability `p` that it is the first irrecoverable turn; the `p` values should
+sum to about 1 over the listed turns:
+{"turns": [{"turn": <integer>, "p": <float>, "reason": "<one short sentence>"}, ...]}

@@ -34,7 +34,8 @@ def main() -> int:
     ap.add_argument("--oracle-json", type=Path, required=True)
     ap.add_argument("--window", type=int, default=1, help="primary localization window")
     ap.add_argument("--judge-root", type=Path, default=Path("results"),
-                    help="reads <judge-root>/<job>/<trial>/judge.json for the judge row")
+                    help="reads <judge-root>/<job>/<trial>/judge_<slot>.json per judge slot "
+                         "(judge_open, judge_local, judge_claude; legacy judge.json)")
     args = ap.parse_args()
     records = [t for j in args.base_jobs for t in iter_trials(j)]
     eligible = eligible_failed_runs(records, per_task_pass(records))[: args.n_runs]
