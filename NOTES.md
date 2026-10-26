@@ -211,3 +211,15 @@ the plan's rule applies (switch to SpreadsheetBench Verified). The Monte Carlo r
 - A Claude-only probe's value does feed the oracle V̂ (it is the student's own continuation); only
   pair export excludes `eval_only` continuations.
 - Judge commands now use design jobs (`jobs/w0-dev-9b-t06`); the w0-mini jobs are archived.
+
+### 2026-10-25 Local referee smoke (diagnostic only)
+
+- Two sampled 9B-4bit Mac failures were probed at K=4 to validate replay/referee plumbing. These
+  are design diagnostics, not Q1 localization results.
+- `c901732_3__8KZ792a`: first guard g=8, adjacent-rule t*=3. Values were strongly non-monotonic
+  (including V(s1)=0/4 and V(s9)=3/4), demonstrating that K=4 is too noisy for scientific claims.
+- `60d0b5b_1__pHRgiha`: first guard g=10, repaired adjacent-rule t*=14, largest drop=14; the
+  previously interrupted turn-15 probe was deleted and rerun successfully, yielding 0/4.
+- Operational result: replay-based probes and interrupted-job recovery work end to end. Scientific
+  decision unchanged: use the preregistered K=8/K=16, change-point fit and split-half analysis on
+  the matched bf16 GPU stack; do not interpret either smoke t* as evidence for or against guards.
