@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -68,6 +69,11 @@ def main() -> int:
         if (job_dir / "result.json").is_file() and json.loads(
                 (job_dir / "result.json").read_text()).get("finished_at"):
             return job_dir
+        if job_dir.exists():
+            # An interrupted probe job: Harbor will not reuse its dir, so a rerun would
+            # silently produce 0/0. Start the probe over.
+            print(f"rerunning interrupted probe job {job_name}", flush=True)
+            shutil.rmtree(job_dir)
         plan = json.loads(plan_path.read_text())
         cmd = build_harbor_command(
             hz_root=hz_root, tasks=[plan["task_id"]], student_model=args.student_model,

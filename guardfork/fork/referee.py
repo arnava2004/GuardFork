@@ -131,6 +131,9 @@ def run_referee(rec: TrialRecord, *, base_pass: tuple[int, int], K: int,  # noqa
         result.values[t] = value
         result.continuations += conts
         result.env_seconds += secs
+        if value[1] == 0:
+            note = f"probe t={t} produced no graded continuations"
+            result.skipped = f"{result.skipped}; {note}" if result.skipped else note
 
     for t in queue:
         if len(result.values) >= max_probes:

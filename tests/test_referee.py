@@ -92,6 +92,19 @@ def test_referee_extra_turns_shared_with_guard_window_are_not_eval_only(tmp_path
     assert not any(c["eval_only"] for c in res.continuations)
 
 
+def test_referee_flags_probes_without_graded_continuations(tmp_path):
+    rec = _failed_run(T=8, guard_at=6)
+
+    def empty_launch(plan_path, k, job_name):
+        job = tmp_path / job_name
+        job.mkdir(parents=True)
+        return job
+
+    res = run_referee(rec, base_pass=(4, 8), K=4, launch=empty_launch,
+                      plans_dir=tmp_path / "plans")
+    assert res.skipped and "no graded continuations" in res.skipped
+
+
 def test_referee_skips_runs_without_nonterminal_guard(tmp_path):
     rec = _failed_run(T=5, guard_at=99)
     launch, launched = _fake_launch(1, tmp_path)
