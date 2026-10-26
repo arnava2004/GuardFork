@@ -74,6 +74,16 @@ bootstrap; cost in continuations per failure alongside.
   reported side by side. Per judge we report the pick-position histogram (first / middle / last
   third, last turn) and calibration (stated p vs observed hit).
 
+## Credit pilot (Section 5) primary metric
+
+Prefix drift (`guardfork/train/prefix_drift.py`): per-turn Δ_t = log π_after − log π_before on
+held-out oracle-labelled failures, grouped by [t\*_lo, t\*_hi]; primary statistic is the
+prefix-protection gap mean(Δ_pre) − mean(Δ_at) with a paired scenario-clustered bootstrap CI,
+compared across 1-seed checkpoints (uniform DPO, hard-mask DPO, soft-posterior PW-DPO, GF-DPO).
+test_normal TGC is secondary (appendix, paired CIs). Credit rules are also scored against the
+learner's own Δ_t^MC (`guardfork/train/credit.py`); QVal (2606.32034) is the anchor citation,
+with our two differences (on-policy learner values; deterministic harness-rule family) stated.
+
 ## Predictions (Arnav fills before the first evaluation-scenario referee run)
 
 - P1 Hit(w=1) of `guards_recovery_aware` minus random: __ pp on 9B, __ pp on 4B.
@@ -83,6 +93,7 @@ bootstrap; cost in continuations per failure alongside.
 - P5 oracle test-retest (split-half, ±1 turn): __%.
 - P6 `judge_open` vs `judge_claude` agreement within ±1 turn: __%; Hit(w=1) gap: __ pp.
 - P7 judge calibration: among picks with stated p ≥ 0.7, observed Hit(w=1) = __% (open), __% (Claude).
+- P8 prefix-protection gap (nats/turn): uniform DPO __, hard-mask __, soft-posterior __, GF-DPO __.
 
 ## Amendments
 

@@ -6,6 +6,18 @@ it appears in any draft.
 
 ## Nearest neighbours and what we take from each
 
+- **QVal, 2606.32034 (verified: "QVal: Cheaply Evaluating Dense Supervision Signals for
+  Long-Horizon LLM Agents").** The closest prior for Section 5: it ranks many step-credit methods
+  against reference-policy Monte Carlo Q-values. Our two differences, stated in one sentence in the
+  paper: we score credit against the **learner's own on-policy** V̂(s_t) (4B/9B continuations),
+  not an off-policy reference/expert policy's Q; and we add the **deterministic harness-rule
+  family** (G1–G5, `g3_unrecovered`), which is absent from QVal's method families. QVal turns
+  from a scoop into the anchor citation once those two sentences are in. Re-read before quoting
+  its exact family list or method count.
+- **AgentProcessBench, 2603.14465 (verified)** and **HCAPO, 2603.08754 (verified: "Hindsight
+  Credit Assignment for Long-Horizon LLM Agents"):** step-level process quality and hindsight
+  credit; cite in related work after re-reading. **REALM 2026 localization–repair gap:** no ID
+  yet; find the venue/ID before citing.
 - **LVRL, 2610.15840 (verified: "LLM Value Functions for Credit Assignment in Agentic RL").**
   A frozen frontier critic scores step credit against Monte Carlo ground truth. Three facts we
   use, all to be re-read from the paper before quoting: critic agreement is weakest in the first
@@ -15,15 +27,17 @@ it appears in any draft.
   never claim their exact strings. Do **not** cite any "9.8% / 0.0%" Table-4 number.
 - **PivoARL, 2607.03702 (verified).** Spares the prefix before a pivotal turn.
 - **C³, 2610.19695 (verified).** Rule-detected invalid tool calls / loops flip advantages.
-- **Critical-State RL, 2609.24985 (verified).** Ran a hard turn-mask control that did not
-  reproduce their gain; a warning for Path 1 below.
+- **Critical-State RL, 2609.24985 (ID verified).** The claim that its hard turn-mask control did
+  not reproduce the gain is **not confirmed from the abstract; re-check the full text before
+  citing it**. If it holds, it is a warning for Path 1 below.
 - **DepGPO, 2610.03634 (verified).** Dependency tracing from the verifier's read set.
-- **TRACE, 2607.13988 (verified)** and **SAGE-OPD, 2606.19659 (unverified):** post-hoc per-turn
+- **TRACE, 2607.13988 (verified)** and **SAGE-OPD, 2606.19659 (verified):** post-hoc per-turn
   loss/reward weighting, not rollout interventions.
 - **Doomed-from-the-Start, 2607.06503 (verified)** and **Selective Rollout, 2605.05802
-  (unverified):** own in-flight abort. We report one offline savings number and stop.
-- **ECHO 2610.16027, Traverse 2609.17930, Checking the Checkers 2610.17824, CERO 2606.05606 /
-  2610.09679, LEGO-RL 2608.17393 (verified):** cite only after re-reading.
+  (verified):** own in-flight abort. We report one offline savings number and stop.
+- **ECHO 2610.16027 (verified: "Of Errors and Echoes"), LEGO-RL 2608.17393 (verified);
+  Traverse 2609.17930, Checking the Checkers 2610.17824, CERO 2606.05606 / 2610.09679
+  (unverified):** cite only after re-reading.
 
 ## Follow-up plan: posterior step credit, scored against the oracle
 
@@ -48,9 +62,26 @@ What we do instead, at zero extra container cost once the oracle table exists:
    (checked in all 732 task evaluators), so collateral DB mutations already fail the verifier;
    the expected finding is near-zero silent harm on reward-1 runs, and G5 firings on passed runs
    are mostly skipped read-backs.
-3. **Appendix only:** a 1-seed, equal-episode PW-DPO vs Fork-DPO pilot with paired CIs, and a
-   one-paragraph offline abort estimate ("aborting when P(t\* ≤ t) > 0.9 saves X% of continuation
-   tokens at 95% recall").
+3. **Credit pilot, primary metric = prefix drift (Proposal 0, `guardfork/train/prefix_drift.py`).**
+   test_normal TGC has a 4–8 point detection floor against a realistic 0–3 point effect, so it is
+   secondary. Primary: on ~40 held-out oracle-labelled failures (~600 turns), compute per turn
+   Δ_t = log π_after(a_t|s_t) − log π_before(a_t|s_t) for each 1-seed checkpoint (uniform DPO,
+   hard-mask DPO, soft-posterior PW-DPO, GF-DPO), group turns by the oracle interval
+   (pre: t < t\*_lo; at: t\*_lo ≤ t ≤ t\*_hi; post: t > t\*_hi), and report the prefix-protection
+   gap mean(Δ_pre) − mean(Δ_at) with a paired scenario-clustered bootstrap CI. Zero container
+   cost: forward passes over saved token ids on the Mac. Prediction to lock: soft posterior and
+   GF-DPO show a larger gap than uniform and hard-mask.
+4. **Appendix only:** the 1-seed pilot's test_normal TGC with paired CIs, and a one-paragraph
+   offline abort estimate ("aborting when P(t\* ≤ t) > 0.9 saves X% of continuation tokens at 95%
+   recall"; cite Selective Rollout and Doomed-from-the-Start). Silent harm stays one paragraph
+   plus the 30-run audit table.
+
+## Proposal A (separate workspace, after Q1 numbers exist)
+
+"Does on-policy credit alignment predict RL gains?" QVal's stated open question. Test 5–6 credit
+rules plus noisy variants in a fast text environment (ALFWorld or similar), correlating each
+rule's oracle-alignment score with its actual RL gain. Kept out of `guardfork` so it does not
+touch the AppWorld container budget; starts only once Q1 has numbers.
 
 Implementation notes (agent, commit `c6f241a`): `elpo_bel`, `c3_rule_flip` and `open_judge`
 in `guardfork/q1/simulate_search.py` / `guardfork/train/credit.py` are simplified stand-ins and

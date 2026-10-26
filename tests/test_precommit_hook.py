@@ -42,7 +42,8 @@ def test_blocks_task_text(repo):
     assert _commit(repo, "notes.txt", "prompt ... [APPWORLD_CURRENT_TASK] ...") != 0
 
 
-@pytest.mark.parametrize("secret", ["sk-ant-" + "A1b2C3d4" * 6, "sk-or-v1-" + "0123456789abcdef" * 3])
+@pytest.mark.parametrize("secret", ["sk-ant-" + "A1b2C3d4" * 6,
+                                    "sk-or-v1-" + "0123456789abcdef" * 3])
 def test_blocks_api_keys(repo, secret):
     assert _commit(repo, "config/judges.toml", f'api_key = "{secret}"\n') != 0
 

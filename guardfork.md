@@ -47,7 +47,8 @@ Arnav fills the blanks below (and the per-guard / no-G3 expectations) before `sc
 - **s1 screen** at K = 8; hopeless = 0/8 confirmed 0/16; everything ≥ 1/16 is eligible.
 - **Candidate-augmented probe grid:** thinned grid plus mandatory windows around each guard's first firing, the open-weight judge pick and the original run's entropy peak; K = 16 refinement around the candidate change-point; deterministic snapping; 10–15 fully dense runs to bound snapping bias.
 - **Primary oracle:** change-point first-irrecoverable turn at τ = 0.5·V̂(s1) with a 90% bootstrap interval; τ in {0.3, 0.7} and largest-drop as sensitivity. 8/8 split-half on K = 16 states, Beta bootstrap elsewhere.
-- **Localizer ladder** from the LVRL-style error-marker floor to bisection and `guard_bayesect`; posterior step-credit scored against the oracle and a fault-triage section (`FRONTIER_TANGENTS.md`), training reweighting demoted to an appendix pilot.
+- **Localizer ladder** from the LVRL-style error-marker floor to bisection and `guard_bayesect`; LLM judges (`judge_open` primary, `judge_claude` eval-only) return turn distributions used as search priors.
+- **Section 5:** step credit scored against the learner's own Monte Carlo values, anchored on QVal (2606.32034) with two stated differences (on-policy values; harness-rule family); credit pilot judged primarily by **prefix drift** (`train/prefix_drift.py`), test_normal TGC secondary. Silent harm and in-flight abort are one paragraph each.
 
 ## Compute Plan
 
