@@ -199,3 +199,15 @@ the plan's rule applies (switch to SpreadsheetBench Verified). The Monte Carlo r
 - Code: removed the one-off queue/resume scripts, `scripts/run_pilot.py` and `guardfork/fork/launch.py`
   (superseded by `fork/referee.py`); kept `pilot/gates.py`. Spec tests for agent-written code moved
   to `tests/test_*_spec.py`; only `bayes_prior` specs stay under `tests/handwritten/`.
+
+### 2026-10-25 Multi-judge plumbing landed (commit 0278b57); open items
+
+- VERIFY before the first judge call: OpenRouter id `qwen/qwen3-235b-a22b-2507` and prices; pin the
+  dated Claude Sonnet snapshot via `GET /v1/models` (currently the alias `claude-sonnet-4-5`).
+- `scripts/run_referee.py` does not yet pass judge picks as `extra_turns` (plumbing exists in
+  `fork/referee.py`); wire it before the GPU referee uses judge windows.
+- `max_probes` bounds the total, so mandatory judge windows can be cut on long queues; raise it
+  for the GPU run.
+- A Claude-only probe's value does feed the oracle V̂ (it is the student's own continuation); only
+  pair export excludes `eval_only` continuations.
+- Judge commands now use design jobs (`jobs/w0-dev-9b-t06`); the w0-mini jobs are archived.
