@@ -17,7 +17,9 @@ design_scenarios = [
   "37a8675", "396c5a2", "3ab5b8b", "4ec8de5", "530b157", "6171bbc", "d4e9306",
 ]
 
-# Jobs whose runs were inspected while tuning (all Mac, 4-bit MLX).
+# Jobs whose runs were inspected while tuning (all Mac, 4-bit MLX). The w0-mini-* jobs are
+# greedy-era and archived outside the repo (~/guardfork_archive/2026-10-25-greedy-era); names
+# stay here so they remain excluded if ever restored.
 dev_jobs = [
   "mac-oracle-smoke",
   "mlx-4b-smoke-07b42fd_1",
@@ -28,4 +30,6 @@ dev_jobs = [
   "w0-mini-9b-mlx-retry-a",
   "w0-mini-9b-mlx-retry-b",
   "w0-dev-9b-t06",
+  "w0-dev-9b-t06-r1",
+  "w0-dev-9b-t06-r2",
 ]

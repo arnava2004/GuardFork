@@ -1,7 +1,7 @@
 """W1 reward parity: replay N complete trajectories (0 model calls) through Harbor and
 require the official verifier to reproduce each original reward.
 
-    uv run python scripts/replay_parity.py --jobs jobs/w0-mini-4b-mlx --n 20
+    uv run python scripts/replay_parity.py --jobs jobs/w0-dev-9b-t06 --n 20
 """
 
 from __future__ import annotations

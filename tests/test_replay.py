@@ -6,8 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from guardfork.fork.harbor_replay import ReplayDiverged, ReplayPlan, replay_prefix
-from guardfork.fork.launch import launch_continuations
+from guardfork.fork.harbor_replay import ReplayDiverged, replay_prefix
 from guardfork.fork.replay_checks import canonical_messages, offline_request_reconstruction
 from guardfork.manifest import Manifest, harness_hash, write_manifest
 
@@ -26,25 +25,6 @@ def test_replay_prefix_accepts_match():
         return "ok"
 
     asyncio.run(replay_prefix(("ls", "cat"), ("ok", "ok"), execute))
-
-
-def test_launch_uses_injected_runner(tmp_path, make_trial, event):
-    job = make_trial("forkk", "k0", "aaaaaaa_1", 1.0, [event("aaaaaaa_1")])
-    plan = ReplayPlan(tmp_path, "aaaaaaa_1", 2, "abc", ("ls",), ("ok",), ())
-
-    def runner(_plan, k, dest: Path) -> Path:
-        return job
-
-    results = launch_continuations(plan, 1, job_name="f", output_dir=tmp_path / "out",
-                                   concurrency=1, eval_seed=0, runner=runner)
-    assert results[0].reward == 1.0
-
-
-def test_launch_without_runner_errors(tmp_path):
-    plan = ReplayPlan(tmp_path, "aaaaaaa_1", 2, "abc", (), (), ())
-    with pytest.raises(RuntimeError):
-        launch_continuations(plan, 1, job_name="f", output_dir=tmp_path, concurrency=1,
-                             eval_seed=0)
 
 
 def test_canonical_messages_sorts_arguments():

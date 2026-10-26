@@ -3,8 +3,8 @@
 Each side is a label, a proxy log, and one or more job dirs (e.g. seeds 1-2 and 3-4):
 
     uv run python scripts/compare_jobs.py \
-        --a 4B runs/proxy/mlx_4b_smoke.jsonl jobs/w0-mini-4b-mlx \
-        --b 9B runs/proxy/mlx_9b_mini.jsonl jobs/w0-mini-9b-mlx jobs/w0-mini-9b-mlx-s34
+        --a 4B runs/proxy/<4b_log>.jsonl jobs/<4b_job> \
+        --b 9B runs/proxy/<9b_log>.jsonl jobs/<9b_seed12_job> jobs/<9b_seed34_job>
 """
 
 from __future__ import annotations

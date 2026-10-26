@@ -58,7 +58,8 @@ it writes".
 - [ ] **ELPO** — MC rollout trees for step localization. [arXiv 2602.09598](https://arxiv.org/abs/2602.09598)
 - [ ] **Math-Shepherd** — MC continuation labels for steps (the oracle idea). [arXiv 2312.08935](https://arxiv.org/abs/2312.08935)
 - [ ] **VinePPO** — MC value estimates from intermediate states. [arXiv 2410.01679](https://arxiv.org/abs/2410.01679)
-- [ ] Your spec tests: `tests/handwritten/*.py`. **I wrote these from the plan; check that each
+- [ ] Spec tests: `tests/test_guards_spec.py`, `tests/test_oracle_spec.py`, and yours in
+      `tests/handwritten/test_bayes_prior_spec.py`. **I wrote these from the plan; check that each
       one says what you mean** (especially G2, G5, t*, and forkability) before implementing.
 
 ## 5. Before the Q1 statistics (Weekends 3–4)
@@ -87,15 +88,18 @@ For each file: does it do what its docstring says, does it ever write outside `r
 `results/`, `forks/`, `jobs/`, and could it leak AppWorld text into git?
 
 - [ ] `hooks/pre-commit` — try committing a `runs/` file and a file containing task text.
-- [ ] `guardfork/splits.py` — 40/9/56 scenarios; `test_normal` needs `allow_final=True`.
+- [ ] `config/dev_set.toml` + `guardfork/freeze.py` — 15 design / 34 evaluation scenarios
+      (the binding split, see `PREREGISTRATION.md`); `guardfork/splits.py` — `test_normal`
+      needs `allow_final=True`.
 - [ ] `guardfork/telemetry/trials.py` — matches `store.py` / Harbor layouts from section 2.
 - [ ] `guardfork/telemetry/to_trajectory.py` — observation of turn t comes from event t+1.
 - [ ] `guardfork/serve/proxy.py` — never changes the response; what it injects into requests.
 - [ ] `guardfork/serve/parity.py` — message conversion matches tinker's `Message` format.
 - [ ] `guardfork/measure/w0.py` — TGC/SGC definitions match the AppWorld paper.
-- [ ] `tools/viewer/` — binds 127.0.0.1 only, read-only. Try it:
-      `uv run python tools/viewer/make_demo.py`, then the command in its docstring.
-- [ ] Stubs (`fork/harbor_replay.py`, `fork/launch.py`, `fork/replay_checks.py`, `cost.py`,
-      `manifest.py`, `pilot/gates.py`, `q1/localization.py`) and `tests/pending/` specs.
-- [ ] `uv run pytest` (plumbing passes), `-m handwritten` (yours, fail until written),
-      `-m pending` (mine, fail until W0 passes).
+- [ ] `tools/viewer/` — binds 127.0.0.1 only, read-only:
+      `uv run python tools/viewer/server.py` (indexes `jobs/` and `forks/`).
+- [ ] Forking and the referee (`fork/harbor_replay.py`, `fork/referee.py`,
+      `fork/replay_checks.py`), `q1/` (localization, simulate_search, triage), `train/`
+      (credit, prefix_drift, export, pairs), `judge.py`, `sampling.py`, `cost.py`, `manifest.py`.
+- [ ] `uv run pytest` (everything except yours), `-m handwritten` (bayes_prior, fails until
+      you write it).

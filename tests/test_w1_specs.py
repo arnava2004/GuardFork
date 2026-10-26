@@ -1,4 +1,4 @@
-"""Specs for agent-written Weekend 1–4 stubs. Deselected by default; run with -m pending."""
+"""Replay plans, cost ledger, and the Weekend 1 gate math (config/kill.toml weekend_1_pilot)."""
 
 from pathlib import Path
 
@@ -7,7 +7,6 @@ import pytest
 from guardfork.config import load_kill_config
 from guardfork.cost import CostEntry, CostLedger
 from guardfork.fork.harbor_replay import NotForkable, build_replay_plan
-from guardfork.fork.launch import ContinuationResult, value_estimate
 from guardfork.pilot.gates import (
     PilotRun,
     guard_false_positive_rates,
@@ -35,12 +34,6 @@ def test_replay_plan_has_t_minus_1_commands():
 def test_replay_plan_rejects_after_session_reset():
     with pytest.raises(NotForkable):
         build_replay_plan(_record(6, reset_at=2), 4)
-
-
-def test_value_estimate_excludes_ungraded():
-    res = [ContinuationResult(4, k, Path("x"), r, "ok", 1.0, None)
-           for k, r in enumerate([1.0, 0.0, None, 1.0])]
-    assert value_estimate(res) == (2, 3)
 
 
 def test_cost_ledger_roundtrip(tmp_path):

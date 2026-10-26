@@ -3,7 +3,7 @@ config/judges.toml which live turn first went irrecoverably wrong (distribution 
 Writes results/<job>/<trial>/judge_<judge_id>.json.
 
     # 1) debug the template on design-split failures (prompt may still be a draft)
-    uv run python scripts/llm_judge.py --jobs jobs/w0-mini-9b-mlx --dev-only --limit 5 \
+    uv run python scripts/llm_judge.py --jobs jobs/w0-dev-9b-t06 --dev-only --limit 5 \
         --all-judges --max-usd 2
     # 2) freeze config/judge_freeze.toml, then run on fresh non-dev failures
     uv run python scripts/llm_judge.py --jobs jobs/w0-screen-9b-t06-s12 --judge-id judge_open

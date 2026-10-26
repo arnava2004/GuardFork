@@ -1,4 +1,5 @@
-# Kill criteria. Read by scripts/measure_w0.py (weekend_0) and scripts/run_pilot.py (weekend_1_pilot).
+# Kill criteria. weekend_0 is read by scripts/measure_w0.py; weekend_1_pilot by
+# guardfork/pilot/gates.py (v1 W1 gates, kept for reporting; v2 protocol in PREREGISTRATION.md).
 # Change a threshold only with a dated entry in NOTES.md explaining why.
 
 [weekend_0]
