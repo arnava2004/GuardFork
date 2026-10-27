@@ -196,11 +196,9 @@ the plan's rule applies (switch to SpreadsheetBench Verified). The Monte Carlo r
 
 ### 2026-10-25 Referee smoke (Mac, 9B-4bit, K=4, 2 failures) and fixes
 
-- `c901732_3__8KZ792a`: T=15, g=8, v1 t*=3; V = 1:0/4, 3:2/4, 4:0/4, 5:1/4, 9:3/4, 12:2/4.
-  `60d0b5b_1__pHRgiha`: T=16, g=10, t*=14 (V(14)=3/4 -> V(15)=0/4). Pricing only: K=4 values
-  are not monotone (c901732 recovers to 3/4 at t=9 after "collapsing" at t=4), so the v1
-  adjacent-pair rule is unreliable at this K; the pre-registered change-point oracle at
-  K=8/16 is what Q1 uses.
+- Results and interpretation: see "Local referee smoke (diagnostic only)" above. For
+  c901732 the K=4 curve recovers to 3/4 at t=9 after "collapsing" at t=4, so the v1
+  adjacent-pair rule is unreliable at this K.
 - Cost: 6157 + 4895 + 316 env-s (summed continuation wall time, ~1.6 h per failure; ~30-45 min
   elapsed per failure at concurrency 2). The ledger had
   charged 60d0b5b twice (5210 s on the rerun, incl. 4895 s of reused probes); corrected in
