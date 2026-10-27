@@ -88,7 +88,7 @@ For each file: does it do what its docstring says, does it ever write outside `r
 `results/`, `forks/`, `jobs/`, and could it leak AppWorld text into git?
 
 - [ ] `hooks/pre-commit` — try committing a `runs/` file and a file containing task text.
-- [ ] `config/dev_set.toml` + `guardfork/freeze.py` — 15 design / 34 evaluation scenarios
+- [ ] `config/dev_set.toml` + `guardfork/freeze.py` — 17 design / 32 evaluation scenarios (amendment 1)
       (the binding split, see `PREREGISTRATION.md`); `guardfork/splits.py` — `test_normal`
       needs `allow_final=True`.
 - [ ] `guardfork/telemetry/trials.py` — matches `store.py` / Harbor layouts from section 2.

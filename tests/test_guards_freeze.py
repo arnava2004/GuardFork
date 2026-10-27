@@ -17,5 +17,6 @@ def test_dev_set_excludes_tuning_tasks_and_jobs():
     assert dev.excludes("anything", "07b42fd_3")  # whole scenario, not just the touched task
     assert dev.excludes("w0-mini-4b-mlx", None)
     assert not dev.excludes("w0-eval-9b", "82e2fac_1")
-    assert len(dev.scenarios) == 15 and len(dev.tasks) == 45
-    assert not (dev.scenarios & {"c901732", "60d0b5b"})  # referee-smoke runs stay in eval
+    assert len(dev.scenarios) == 17 and len(dev.tasks) == 51
+    # amendment 1: the referee smoke probed these before predictions were committed
+    assert {"c901732", "60d0b5b"} <= dev.scenarios

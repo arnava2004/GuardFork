@@ -6,12 +6,13 @@ that date are amendments, listed at the bottom with dates.
 
 ## Split (scenario level, `config/dev_set.toml`)
 
-- **Design: 15 scenarios / 45 tasks.** The 8 scenarios guards-v1 was debugged on (`07b42fd`,
+- **Design: 17 scenarios / 51 tasks** (15 / 45 before amendment 1). The 8 scenarios guards-v1 was debugged on (`07b42fd`,
   `0d8a4ee`, `22cc237`, `23cf851`, `27e1026`, `287e338`, `2a163ab`, `302c169`; 6 of these carry
   the official `train` tag, so the official dev/train tags are not a leak-free split) plus 7
-  untouched official-dev scenarios chosen by salted hash. Used for guard tuning, judge-prompt
+  untouched official-dev scenarios chosen by salted hash, plus the 2 referee-smoke scenarios
+  (`60d0b5b`, `c901732`, official train; amendment 1). Used for guard tuning, judge-prompt
   tuning, lag-prior calibration and thresholds.
-- **Evaluation: 34 scenarios / 102 tasks** (24 untouched official-train + 10 untouched
+- **Evaluation: 32 scenarios / 96 tasks** (22 untouched official-train + 10 untouched
   official-dev). Headline Q1 curves use evaluation scenarios only. Scenario is the bootstrap
   cluster.
 - `test_normal` (168 tasks) is used only for K0 and final Q2 evals (`allow_final=True`).
@@ -97,4 +98,11 @@ with our two differences (on-policy learner values; deterministic harness-rule f
 
 ## Amendments
 
-- (none)
+- **1 (2026-10-25), split.** The 2-failure Mac referee smoke (`--K 4`, 9B-4bit, pricing only)
+  probed `60d0b5b_1__pHRgiha` and `c901732_3__8KZ792a`, both in evaluation scenarios, before
+  P1–P8 were committed; their value curves were then read. Both scenarios move to design
+  (design 17 / 51 tasks, evaluation 32 / 96). Nothing else on the evaluation side was probed,
+  judged or inspected. The same day the referee was fixed so `v_s1` pools the s_1 probe
+  with the base runs (it had used the base-run Jeffreys value only), mandatory windows can no
+  longer be cut by `max_probes`, and a failed probe no longer yields an oracle label; the
+  smoke's oracle.json files predate those fixes.

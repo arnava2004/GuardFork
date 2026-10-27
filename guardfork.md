@@ -27,7 +27,7 @@ Q1 and Section 5 predictions (P1–P8) live in `PREREGISTRATION.md`, which is bi
 
 - **Benchmark:** AppWorld in Harness-Zero's container setup (`AppWorldMinisweAgent` + `AppWorldDockerEnvironment`; 23 initial messages = 10 demo assistant turns before `[APPWORLD_CURRENT_TASK]`; one `execute` bash tool).
 - **Splits** (`scenario = task_id.rsplit("_", 1)[0]`, 3 tasks/scenario):
-  - Q1: train147's 49 scenarios split into **15 design / 34 evaluation** at the scenario level (`config/dev_set.toml`, see v2 Protocol below).
+  - Q1: train147's 49 scenarios split into **17 design / 32 evaluation** at the scenario level (`config/dev_set.toml`, see v2 Protocol below; 15/34 before amendment 1).
   - Q2 training/checkpoint selection: `guardfork/splits.py` (train / dev_heldout by salted hash); reconcile with the Q1 split before Weekend 5 so no evaluation scenario is used for checkpoint selection.
   - `test_normal`: 56 scenarios (168 tasks), locked in the loader unless `allow_final=True` (`--final`); K0 and final Q2 evals only.
 - **Models (open-weight only):** see Model Lineup below; `Qwen/Qwen3.5-9B` is the core model. Serving/training template parity: `Qwen3_5Renderer(strip_thinking_from_history=False)` verified against vLLM `prompt_token_ids` on the GPU VM before any training data is built.
@@ -41,7 +41,7 @@ Q1 and Section 5 predictions (P1–P8) live in `PREREGISTRATION.md`, which is bi
 
 ## v2 Protocol (binding; details in `PREREGISTRATION.md`)
 
-- **Split:** scenario-level design (15 scenarios, incl. all 8 debugged ones; 6 of them are official `train`) vs evaluation (34 untouched scenarios). Headline Q1 uses evaluation only.
+- **Split:** scenario-level design (17 scenarios, incl. all 8 debugged ones and the 2 referee-smoke ones) vs evaluation (32 untouched scenarios). Headline Q1 uses evaluation only.
 - **Single bf16 vLLM stack** for the Q1 failure pool and continuations, after a GPU concurrency pilot (C in {8, 16, 32}). Mac 4-bit runs are design/pilot only.
 - **s1 screen** at K = 8; hopeless = 0/8 confirmed 0/16; everything ≥ 1/16 is eligible.
 - **Candidate-augmented probe grid:** thinned grid plus mandatory windows around each guard's first firing, the open-weight judge pick and the original run's entropy peak; K = 16 refinement around the candidate change-point; deterministic snapping; 10–15 fully dense runs to bound snapping bias.

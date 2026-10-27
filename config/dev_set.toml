@@ -1,12 +1,13 @@
 # Design / evaluation split over the 49 train147 scenarios (147 tasks). Scenario-level, so
 # no task shares a scenario across the two sides.
 #
-# Design (15 scenarios, 45 tasks): everything guards-v1 was tuned or debugged on (8 touched
+# Design (17 scenarios, 51 tasks): everything guards-v1 was tuned or debugged on (8 touched
 # scenarios; 6 of them carry the official "train" tag, so the official dev/train tags are NOT a
 # leak-free split) plus 7 untouched official-dev scenarios chosen by salted hash
 # ("guardfork-design-v2", referee-smoke scenarios protected). Used for guard tuning, judge
-# prompt tuning, Laplace-lag calibration, thresholds.
-# Evaluation (34 scenarios, 102 tasks): 24 untouched official-train + 10 untouched official-dev.
+# prompt tuning, Laplace-lag calibration, thresholds. Amendment 1 (2026-10-25,
+# PREREGISTRATION.md) moved the 2 referee-smoke scenarios here after the Mac smoke probed them.
+# Evaluation (32 scenarios, 96 tasks): 22 untouched official-train + 10 untouched official-dev.
 # Q1 headline curves use evaluation scenarios only. Any later rule change is a new guards
 # version, reported separately.
 
@@ -15,6 +16,8 @@ design_scenarios = [
   "07b42fd", "0d8a4ee", "22cc237", "23cf851", "27e1026", "287e338", "2a163ab", "302c169",
   # untouched official-dev, added by salted hash
   "37a8675", "396c5a2", "3ab5b8b", "4ec8de5", "530b157", "6171bbc", "d4e9306",
+  # amendment 1: probed by the 2-failure Mac referee smoke before predictions were committed
+  "60d0b5b", "c901732",
 ]
 
 # Jobs whose runs were inspected while tuning (all Mac, 4-bit MLX). The w0-mini-* jobs are
