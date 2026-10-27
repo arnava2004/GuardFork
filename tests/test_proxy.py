@@ -32,6 +32,16 @@ def test_sampling_config_injected_with_logged_seed_but_never_overrides():
     assert "temperature" not in inject_request_fields({}, "mlx", load_sampling("none"))
 
 
+def test_sampling_cap_applies_on_both_backends_without_clobbering_client_cap():
+    from guardfork.sampling import load_sampling
+
+    cfg = load_sampling()
+    assert inject_request_fields({}, "vllm", cfg)["max_tokens"] == cfg.request["max_tokens"]
+    assert inject_request_fields({}, "mlx", cfg)["max_tokens"] == cfg.request["max_tokens"]
+    out = inject_request_fields({"max_completion_tokens": 100}, "vllm", cfg)
+    assert "max_tokens" not in out and out["max_completion_tokens"] == 100
+
+
 def test_extract_vllm_and_mlx_shapes():
     vllm = {"prompt_token_ids": [1, 2], "usage": {"prompt_tokens": 2},
             "choices": [{"token_ids": [3], "finish_reason": "stop",

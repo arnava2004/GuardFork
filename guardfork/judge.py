@@ -17,6 +17,7 @@ there). Legacy `{"turn": k, "reason": ...}` answers still parse as a one-hot dis
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import math
 import os
@@ -408,7 +409,10 @@ def parse_distribution(raw: str, n_turns: int,
     left `1 - s` unassigned: the in-range entries keep their stated `p` and the leftover
     (`1 - sum(in-range p)`, so dropped mass is also leftover) is spread uniformly over the
     turns that were not listed; if every turn was listed, the entries are renormalised.
-    `s == 0` is an error.
+    `s == 0` is an error. When some entries state `p` and others do not, each turn listed
+    without `p` gets `min(leftover / n_bare, smallest stated p)` (the smallest stated `p` if
+    nothing is left over) before the rules above, so a listed turn never ranks below turns
+    the judge did not mention and never above the turns it did weight.
     """
     uniform = [1.0 / n_turns] * n_turns if n_turns > 0 else []
     if n_turns <= 0:
@@ -464,6 +468,12 @@ def parse_distribution(raw: str, n_turns: int,
             stated = 1.0
         else:
             return uniform, None, reasons, "stated probabilities sum to zero"
+    bare = [t for t in dict.fromkeys(unweighted) if mass[t] == 0.0]
+    if bare:
+        smallest = min(p for p in mass.values() if p > 0.0)
+        left = max(0.0, 1.0 - sum(mass.values()))
+        for t in bare:
+            mass[t] = min(left / len(bare), smallest) if left > 0.0 else smallest
     s_in = sum(mass.values())
     dist = [0.0] * n_turns
     unlisted = [t for t in range(1, n_turns + 1) if t not in mass]
@@ -510,8 +520,8 @@ def _env_key(api_key_env: str | None) -> str | None:
 def _post_json(url: str, body: dict[str, Any], headers: dict[str, str], timeout: float,
                ) -> dict[str, Any]:
     """POST JSON with retry: `RETRY_ATTEMPTS` tries, exponential backoff `RETRY_BACKOFF_S`
-    on HTTP 429/500/502/503/529, URLError and timeouts; 4xx such as 400/401/403 raise at
-    once. Re-raises the last error after the final attempt."""
+    on HTTP 429/500/502/503/529, URLError, timeouts and truncated bodies; 4xx such as
+    400/401/403 raise at once. Re-raises the last error after the final attempt."""
     data = json.dumps(body).encode()
     last: Exception | None = None
     for attempt in range(RETRY_ATTEMPTS):
@@ -523,7 +533,7 @@ def _post_json(url: str, body: dict[str, Any], headers: dict[str, str], timeout:
             if err.code not in RETRY_STATUS:
                 raise
             last = err
-        except (urllib.error.URLError, TimeoutError) as err:
+        except (urllib.error.URLError, TimeoutError, http.client.IncompleteRead) as err:
             last = err
         if attempt + 1 < RETRY_ATTEMPTS:
             _sleep(RETRY_BACKOFF_S[min(attempt, len(RETRY_BACKOFF_S) - 1)])
@@ -617,8 +627,8 @@ def judge_trial(record: TrialRecord, call: Call, *, model: str, template: str,
                 sampling: dict[str, Any] | None = None, eval_only: bool = False,
                 ) -> dict[str, Any]:
     """One judge call on one failed trial -> the judge record (see module docstring).
-    Request failures (`OSError`, incl. HTTP errors after retries) are recorded in `error`
-    rather than raised; `distribution` is None in that case."""
+    Request failures (`OSError` incl. HTTP errors after retries, non-JSON or truncated
+    bodies) are recorded in `error` rather than raised; `distribution` is None then."""
     prompt, truncation = prepare_prompt(record, template, obs_chars=obs_chars,
                                         max_prompt_chars=max_prompt_chars)
     raw, meta = "", {}
@@ -627,8 +637,10 @@ def judge_trial(record: TrialRecord, call: Call, *, model: str, template: str,
         out = call([{"role": "user", "content": prompt}])
         raw, meta = out if isinstance(out, tuple) else (out, {})
         dist, top, reasons, error = parse_distribution(raw, record.n_turns)
-    except OSError as err:  # urllib errors, timeouts
-        dist, top, reasons, error = None, None, {}, f"request failed: {err}"
+    except (OSError, ValueError, http.client.HTTPException) as err:
+        # urllib errors and timeouts (OSError), a non-JSON body (JSONDecodeError is a
+        # ValueError), a truncated body (IncompleteRead): record, keep judging other trials.
+        dist, top, reasons, error = None, None, {}, f"request failed: {type(err).__name__}: {err}"
     return {
         "trial_id": f"{record.job}/{record.trial_dir.name}",
         "task_id": record.task_id,

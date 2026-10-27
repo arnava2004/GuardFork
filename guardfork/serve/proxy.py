@@ -41,6 +41,8 @@ def inject_request_fields(body: dict[str, Any], backend: str,
     out = dict(body)
     if sampling is not None:
         for key, value in sampling.request.items():
+            if key == "max_tokens" and "max_completion_tokens" in out:
+                continue
             out.setdefault(key, value)
         if sampling.seed_per_request:
             out.setdefault("seed", (rng or random).randrange(2**31))
@@ -48,7 +50,7 @@ def inject_request_fields(body: dict[str, Any], backend: str,
     if backend == "vllm":
         out.setdefault("return_token_ids", True)
     elif backend == "mlx" and "max_completion_tokens" not in out:
-        out.setdefault("max_tokens", 4096)
+        out.setdefault("max_tokens", 4096)  # fallback when the config sets no cap
     return out
 
 

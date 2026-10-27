@@ -3,7 +3,9 @@
 # and on GPU VMs (vLLM), so neither server's own defaults ever decide sampling.
 # Source: Qwen3.5 model card, thinking mode, precise coding tasks.
 
-name = "qwen-thinking-code-v1"
+# v2 (2026-10-25): adds the completion cap so mlx (Mac) and vLLM (GPU) truncate identically.
+# v1 had no cap here; the proxy forced 4096 on mlx only and vLLM was uncapped.
+name = "qwen-thinking-code-v2"
 
 # A fresh random seed is drawn per request and logged in the proxy record, so any single
 # completion can be re-sampled exactly (batching may still add nondeterminism).
@@ -15,3 +17,6 @@ top_p = 0.95
 top_k = 20
 min_p = 0.0
 presence_penalty = 0.0
+# 0.4% of 8444 9B-4bit completions hit 4096 on the Mac (p99 1546 tokens;
+# runs/proxy/mlx_9b_t06.jsonl), so 4096 is kept as the cap on both machines.
+max_tokens = 4096

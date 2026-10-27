@@ -112,7 +112,7 @@ the plan's rule applies (switch to SpreadsheetBench Verified). The Monte Carlo r
 
 ### 2026-10-25 03:30 Sampling made explicit; overnight plan
 
-- `config/sampling.toml` (qwen-thinking-code-v1) is now the single source of student sampling; the
+- `config/sampling.toml` (qwen-thinking-code-v1; v2 adds the 4096 cap, see below) is now the single source of student sampling; the
   proxy loads it (`--sampling-config`), adds a logged per-request seed, and stamps each proxy record
   with the config name + sha. Launches write `guardfork_run.json` (config, commits, PYTHONHASHSEED).
 - Running: `w0-screen-9b-t06-s12` (125 non-dev train147 tasks x 2 seeds, sampled, concurrency 3),
@@ -141,39 +141,9 @@ the plan's rule applies (switch to SpreadsheetBench Verified). The Monte Carlo r
 - measure_w0 fixed: SGC is now per seed (job x attempt) and K1 reports "not measurable" below 8
   samples instead of FAIL.
 
-### 2026-10-25 9B-4bit sampled screen: 125 non-dev train147 tasks x 2 seeds (`w0-screen-9b-t06-s12`)
-
-- 250 trials: 105 passed, 110 failed, 35 hit the 40-turn limit. TGC 42.0 (seed 1 41.6, seed 2 42.4).
-- **SGC per seed: 22.0 and 14.6 over 41 scenarios (mean 18.3).** Train147, 4-bit MLX, so not a K0
-  number; but it rules out a 3x-inflated baseline (the earlier 78.6% was the greedy artifact).
-  Harness-Zero reports 26.8 bare-h SGC on test_normal.
-- Per-task passes of 2: 0/2 = 51, 1/2 = 43, 2/2 = 31. 43/125 (34%) mixed at 2 seeds; K1 (>= 20% of
-  tasks in [0.2, 0.8] at >= 8 samples) not measurable yet but promising.
-- K2 PASS (0.5% of 5864 turns, all candidate_issue). K3 PASS ($122 projected). **K4 FAIL**: median
-  prompt tokens at first non-terminal guard 10,382 > 8,192 -> train on Lambda, not the Mac (planned).
-- Wall p50/p95 264 / 704 s. Turn-limit runs: wall p50 490 s, max 1844 s (check the slowest for
-  swap-crawl before the referee; drop referee concurrency to 2 if any look like crawling).
-- measure_w0 fixed: SGC is now per seed (job x attempt) and K1 reports "not measurable" below 8
-  samples instead of FAIL.
-
-### 2026-10-25 9B-4bit sampled screen: 125 non-dev train147 tasks x 2 seeds (`w0-screen-9b-t06-s12`)
-
-- 250 trials: 105 passed, 110 failed, 35 hit the 40-turn limit. TGC 42.0 (seed 1 41.6, seed 2 42.4).
-- **SGC per seed: 22.0 and 14.6 over 41 scenarios (mean 18.3).** Train147, 4-bit MLX, so not a K0
-  number; but it rules out a 3x-inflated baseline (the earlier 78.6% was the greedy artifact).
-  Harness-Zero reports 26.8 bare-h SGC on test_normal.
-- Per-task passes of 2: 0/2 = 51, 1/2 = 43, 2/2 = 31. 43/125 (34%) mixed at 2 seeds; K1 (>= 20% of
-  tasks in [0.2, 0.8] at >= 8 samples) not measurable yet but promising.
-- K2 PASS (0.5% of 5864 turns, all candidate_issue). K3 PASS ($122 projected). **K4 FAIL**: median
-  prompt tokens at first non-terminal guard 10,382 > 8,192 -> train on Lambda, not the Mac (planned).
-- Wall p50/p95 264 / 704 s. Turn-limit runs: wall p50 490 s, max 1844 s (check the slowest for
-  swap-crawl before the referee; drop referee concurrency to 2 if any look like crawling).
-- measure_w0 fixed: SGC is now per seed (job x attempt) and K1 reports "not measurable" below 8
-  samples instead of FAIL.
-
 ### 2026-10-25 Open before the first Lambda run
 
-- **Completion-length parity:** on the Mac the proxy caps mlx completions at 4096 tokens; on vLLM
+- [done 2026-10-25, sampling v2] **Completion-length parity:** on the Mac the proxy caps mlx completions at 4096 tokens; on vLLM
   there is no cap. Before K0, move `max_tokens` into `config/sampling.toml` so both machines use the
   same cap (pick it from the Mac proxy logs: share of completions that hit 4096). Not changed now to
   keep the running dev re-check on one config.
@@ -204,9 +174,9 @@ the plan's rule applies (switch to SpreadsheetBench Verified). The Monte Carlo r
 
 - VERIFY before the first judge call: OpenRouter id `qwen/qwen3-235b-a22b-2507` and prices; pin the
   dated Claude Sonnet snapshot via `GET /v1/models` (currently the alias `claude-sonnet-4-5`).
-- `scripts/run_referee.py` does not yet pass judge picks as `extra_turns` (plumbing exists in
+- [done 2026-10-25] `scripts/run_referee.py` does not yet pass judge picks as `extra_turns` (plumbing exists in
   `fork/referee.py`); wire it before the GPU referee uses judge windows.
-- `max_probes` bounds the total, so mandatory judge windows can be cut on long queues; raise it
+- [done 2026-10-25: mandatory windows always run] `max_probes` bounds the total, so mandatory judge windows can be cut on long queues; raise it
   for the GPU run.
 - A Claude-only probe's value does feed the oracle V̂ (it is the student's own continuation); only
   pair export excludes `eval_only` continuations.
@@ -223,3 +193,30 @@ the plan's rule applies (switch to SpreadsheetBench Verified). The Monte Carlo r
 - Operational result: replay-based probes and interrupted-job recovery work end to end. Scientific
   decision unchanged: use the preregistered K=8/K=16, change-point fit and split-half analysis on
   the matched bf16 GPU stack; do not interpret either smoke t* as evidence for or against guards.
+
+### 2026-10-25 Referee smoke (Mac, 9B-4bit, K=4, 2 failures) and fixes
+
+- `c901732_3__8KZ792a`: T=15, g=8, v1 t*=3; V = 1:0/4, 3:2/4, 4:0/4, 5:1/4, 9:3/4, 12:2/4.
+  `60d0b5b_1__pHRgiha`: T=16, g=10, t*=14 (V(14)=3/4 -> V(15)=0/4). Pricing only: K=4 values
+  are not monotone (c901732 recovers to 3/4 at t=9 after "collapsing" at t=4), so the v1
+  adjacent-pair rule is unreliable at this K; the pre-registered change-point oracle at
+  K=8/16 is what Q1 uses.
+- Cost: 6157 + 4895 + 316 env-s (summed continuation wall time, ~1.6 h per failure; ~30-45 min
+  elapsed per failure at concurrency 2). The ledger had
+  charged 60d0b5b twice (5210 s on the rerun, incl. 4895 s of reused probes); corrected in
+  `runs/cost/referee.jsonl` (backup `.bak-2026-10-25`), and `run_referee.py` no longer
+  charges reused probe jobs.
+- Both scenarios were evaluation-split: moved to design (PREREGISTRATION amendment 1; design
+  17 / evaluation 32 scenarios).
+- Referee fixes: `v_s1` pools the s_1 probe with the base runs (`v_s1_base` keeps the old
+  value; for c901732 this moves tau from 0.25 to 0.107 but t*=3 stands, so the noise above,
+  not the threshold, drove that label); all mandatory windows run regardless of
+  `max_probes`; a probe with 0 graded continuations stops the trial with no oracle.json and
+  its job is deleted for relaunch; Harbor output goes to `<forks-dir>/<job>.harbor.log`;
+  judge picks are wired (`--judge-root`, `--judge-slots`); bisection plans only from
+  non-Claude values and promotes Claude-only turns it asks for (no longer `eval_only`).
+- Judge: non-JSON / truncated responses are recorded as errors instead of aborting the run;
+  turns listed without `p` get min(leftover share, smallest stated p).
+- Sampling: `config/sampling.toml` is now `qwen-thinking-code-v2` with `max_tokens = 4096` on
+  both machines (0.4% of 8444 Mac 9B completions hit 4096; p99 1546). Runs before this entry
+  used v1 (same values, cap applied by the proxy on mlx only).

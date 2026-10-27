@@ -110,3 +110,42 @@ def test_referee_skips_runs_without_nonterminal_guard(tmp_path):
     launch, launched = _fake_launch(1, tmp_path)
     res = run_referee(rec, base_pass=(4, 8), K=8, launch=launch, plans_dir=tmp_path)
     assert res.skipped and launched == []
+
+
+def test_referee_failed_probe_stops_without_oracle_label(tmp_path):
+    rec = _failed_run(T=8, guard_at=6)
+    launched = []
+
+    def empty_launch(plan_path, k, job_name):
+        launched.append(job_name)
+        job = tmp_path / job_name
+        job.mkdir(parents=True)
+        return job
+
+    res = run_referee(rec, base_pass=(4, 8), K=4, launch=empty_launch,
+                      plans_dir=tmp_path / "plans")
+    assert res.failed_probes == [1] and len(launched) == 1
+    assert res.t_star is None and res.t_star_drop is None
+
+
+def test_referee_pools_s1_probe_into_v_s1(tmp_path):
+    rec = _failed_run(T=8, guard_at=6)
+    launch, _ = _fake_launch(true_t_star=3, tmp=tmp_path, K=4)
+    res = run_referee(rec, base_pass=(1, 2), K=4, launch=launch, plans_dir=tmp_path / "plans")
+    assert res.v_s1_base == (1 + 0.5) / (2 + 1)
+    # s_1 probe is 4/4 under the fake launcher: pooled Jeffreys (1 + 4 + 0.5) / (6 + 1)
+    assert res.v_s1 == (1 + 4 + 0.5) / (2 + 4 + 1)
+
+
+def test_referee_bisection_ignores_claude_values_and_promotes_requested_turns(tmp_path):
+    rec = _failed_run(T=12, guard_at=4)
+    launch, launched = _fake_launch(true_t_star=8, tmp=tmp_path, K=4)
+    res = run_referee(rec, base_pass=(4, 8), K=4, launch=launch, plans_dir=tmp_path / "plans",
+                      max_probes=12, extra_turns={"judge_claude": [9]})
+    # Bisection from the non-Claude values {1, 3, 4, 5} asks for 8, then 10, then 9: all
+    # already probed for Claude, so they are promoted instead of re-launched.
+    assert sorted(launched) == sorted(set(launched))
+    for t in (8, 9, 10):
+        assert res.probe_reasons[t] == ["judge_claude", "bisection"]
+    assert not any(c["eval_only"] for c in res.continuations)
+    assert res.t_star == 8

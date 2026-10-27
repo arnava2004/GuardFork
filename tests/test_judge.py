@@ -437,3 +437,25 @@ def test_load_judges_config():
     for spec in judges.values():
         assert spec.obs_chars == 1500 and spec.max_prompt_chars == 60000
         assert spec.temperature == 0.0 and spec.sampling["max_tokens"] == spec.max_tokens
+
+
+def test_parse_distribution_listed_turn_without_p_never_below_unlisted():
+    # 0.4 left over; turn 7 listed without p gets min(0.4, 0.6) = 0.4, unlisted turns get 0
+    dist, top, _, err = parse_distribution('{"turns": [{"turn": 5, "p": 0.6}, {"turn": 7}]}', 10)
+    assert err is None and top == 5
+    assert dist[6] == pytest.approx(0.4) and all(dist[i] == 0.0 for i in (0, 1, 2, 3, 7, 8, 9))
+    # full mass stated: the bare turn gets the smallest stated p, then renormalised
+    dist, _, _, _ = parse_distribution(
+        '{"turns": [{"turn": 1, "p": 0.7}, {"turn": 2, "p": 0.3}, {"turn": 3}]}', 4)
+    assert dist[2] == pytest.approx(dist[1]) and dist[3] == 0.0
+    assert sum(dist) == pytest.approx(1.0)
+
+
+def test_judge_trial_records_non_json_response():
+    rec = _record(n=2)
+
+    def html_body(messages):
+        raise json.JSONDecodeError("Expecting value", "<html>", 0)
+
+    result = judge_trial(rec, html_body, model="m", template=TEMPLATE, template_sha256="s")
+    assert result["turn"] is None and "JSONDecodeError" in result["error"]

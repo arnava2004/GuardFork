@@ -87,8 +87,13 @@ def main() -> int:
     md = w0.render_markdown(args.title, summary, results, meta)
     print(md)
     if args.notes:
-        with args.notes.open("a", encoding="utf-8") as f:
-            f.write("\n" + md)
+        heading = md.splitlines()[0]
+        existing = args.notes.read_text(encoding="utf-8") if args.notes.is_file() else ""
+        if heading in existing.splitlines():
+            print(f"{args.notes} already has '{heading}'; not appending again", file=sys.stderr)
+        else:
+            with args.notes.open("a", encoding="utf-8") as f:
+                f.write("\n" + md)
     if args.second_stage_out:
         args.second_stage_out.parent.mkdir(parents=True, exist_ok=True)
         args.second_stage_out.write_text("\n".join(summary.second_stage) + "\n")

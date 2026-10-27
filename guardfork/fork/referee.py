@@ -8,7 +8,18 @@ Every probed turn records why it was probed (`reasons`: `initial`, `guard`, `bis
 plus any named `extra_turns` source such as `judge_open` / `judge_claude`). Continuations
 whose probe reasons are only `{"judge_claude"}` are tagged `eval_only: true` in forks.json
 (AGENTS.md rule 3: launched only because of the proprietary eval-only judge, so they never
-enter pair export); their outcomes still count for the Q1 oracle value table.
+enter pair export); their outcomes still count for the Q1 oracle value table. Bisection
+plans its next probe only from non-eval-only values, so no `bisection` probe depends on a
+Claude pick; if bisection asks for a turn that was probed only for `judge_claude`, that turn
+gains the `bisection` reason and loses its `eval_only` tag (it would have been launched
+anyway).
+
+`v_s1` starts from the base runs' Jeffreys estimate and, once s_1 is probed, pools the s_1
+continuations with the base runs (they are exchangeable draws of V(s_1)); `v_s1_base`
+keeps the base-only value. All mandatory probes (initial window, guard, `extra_turns`
+windows) always run; `max_probes` bounds the total only for bisection. A probe with no
+graded continuation (Harbor or proxy failure) stops the referee: `failed_probes` lists it,
+`t_star` stays None, and callers must not treat the result as an oracle label.
 """
 
 from __future__ import annotations
@@ -51,17 +62,20 @@ class RefereeResult:
     env_seconds: float = 0.0
     skipped: str | None = None
     probe_reasons: dict[int, list[str]] = field(default_factory=dict)
+    v_s1_base: float | None = None
+    failed_probes: list[int] = field(default_factory=list)
 
     def to_json(self) -> dict:
         return {
             "trial_id": self.trial_id, "task_id": self.task_id, "T": self.T, "g": self.g,
-            "K": self.K, "v_s1": self.v_s1,
+            "K": self.K, "v_s1": self.v_s1, "v_s1_base": self.v_s1_base,
             "values": {str(t): list(v) for t, v in sorted(self.values.items())},
             "t_star": self.t_star, "t_star_drop": self.t_star_drop,
             "guards_version": GUARDS_VERSION, "env_seconds": self.env_seconds,
             "n_continuations": len(self.continuations), "skipped": self.skipped,
             "probe_reasons": {str(t): list(r) for t, r in sorted(self.probe_reasons.items())},
             "n_eval_only": sum(bool(c.get("eval_only")) for c in self.continuations),
+            "failed_probes": list(self.failed_probes),
         }
 
 
@@ -84,15 +98,15 @@ def run_referee(rec: TrialRecord, *, base_pass: tuple[int, int], K: int,  # noqa
                 extra_turns: Mapping[str, Iterable[int]] | None = None) -> RefereeResult:
     """`extra_turns` maps a source name (e.g. `judge_open`, `judge_claude`) to turns whose
     {x-1, x, x+1} windows are mandatory probes after the initial guard window and before
-    bisection (clipped to [1, T] and to forkable turns; `max_probes` still bounds the
-    total). Probe reasons accumulate per turn; see the module docstring for `eval_only`."""
+    bisection (clipped to [1, T] and to forkable turns). Probe reasons accumulate per turn;
+    see the module docstring for `eval_only`, `v_s1` pooling and `failed_probes`."""
     traj = to_trajectory(rec)
     first = first_nonterminal(evaluate(traj), traj.T)
     trial_id = f"{rec.job}/{rec.trial_dir.name}"
     passes, n = base_pass
+    v_base = jeffreys_v1(passes, n) if n else 0.5
     result = RefereeResult(trial_id, rec.task_id or "", traj.T,
-                           first.turn if first else None, K,
-                           jeffreys_v1(passes, n) if n else 0.5)
+                           first.turn if first else None, K, v_base, v_s1_base=v_base)
     if first is None:
         result.skipped = "no non-terminal guard"
         return result
@@ -112,10 +126,19 @@ def run_referee(rec: TrialRecord, *, base_pass: tuple[int, int], K: int,  # noqa
                 continue
             for u in (x - 1, x, x + 1):
                 want(u, source)
-    queue = [t for t in initial_probes(first.turn, traj.T) if t in allowed]
-    queue += [t for t in sorted(wanted) if t not in queue]
+    mandatory = [t for t in initial_probes(first.turn, traj.T) if t in allowed]
+    mandatory += [t for t in sorted(wanted) if t not in mandatory]
 
-    def probe(t: int, reason: str | None = None) -> None:
+    def tag(t: int) -> None:
+        reasons = result.probe_reasons[t]
+        eval_only = is_eval_only(reasons)
+        for c in result.continuations:
+            if c["turn"] == t:
+                c["reasons"] = list(reasons)
+                c["eval_only"] = eval_only
+
+    def probe(t: int, reason: str | None = None) -> bool:
+        """Launch K continuations at s_t; False when none was graded."""
         reasons = list(wanted.get(t, []))
         if reason and reason not in reasons:
             reasons.append(reason)
@@ -124,31 +147,42 @@ def run_referee(rec: TrialRecord, *, base_pass: tuple[int, int], K: int,  # noqa
         path = save_plan(plan, plans_dir / f"{rec.trial_dir.name}_t{t}.json")
         job_dir = launch(path, K, f"ref-{rec.trial_dir.name}-t{t}")
         value, conts, secs = collect_job(job_dir, t)
-        eval_only = is_eval_only(reasons)
-        for c in conts:
-            c["reasons"] = list(reasons)
-            c["eval_only"] = eval_only
         result.values[t] = value
         result.continuations += conts
         result.env_seconds += secs
+        tag(t)
         if value[1] == 0:
+            result.failed_probes.append(t)
             note = f"probe t={t} produced no graded continuations"
             result.skipped = f"{result.skipped}; {note}" if result.skipped else note
+            return False
+        if t == 1:
+            result.v_s1 = jeffreys_v1(passes + value[0], n + value[1])
+        return True
 
-    for t in queue:
-        if len(result.values) >= max_probes:
-            break
-        probe(t)
+    def planning_values() -> dict[int, float]:
+        return {t: p / g for t, (p, g) in result.values.items()
+                if g and not is_eval_only(result.probe_reasons[t])}
+
+    for t in mandatory:
+        if not probe(t):
+            return result
     while len(result.values) < max_probes:
-        v_hat = {t: p / g for t, (p, g) in result.values.items() if g}
-        nxt = next_probe(v_hat, result.v_s1, K, traj.T)
-        if nxt is None or nxt in result.values:
+        nxt = next_probe(planning_values(), result.v_s1, K, traj.T)
+        if nxt is None:
             break
+        if nxt in result.values:
+            if not is_eval_only(result.probe_reasons[nxt]):
+                break
+            result.probe_reasons[nxt].append("bisection")
+            tag(nxt)
+            continue
         if nxt not in allowed:
             result.skipped = f"bisection needs non-forkable turn {nxt}"
             break
         try:
-            probe(nxt, "bisection")
+            if not probe(nxt, "bisection"):
+                return result
         except NotForkable:
             break
     v_hat = {t: p / g for t, (p, g) in result.values.items() if g}
