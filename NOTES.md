@@ -4,7 +4,7 @@ Dated log of measurements and go/no-go decisions. `scripts/measure_w0.py --notes
 
 ## Pre-W0 checklist
 
-- [ ] Outside-work approval filed (date: ____). No public push/post until cleared.
+- [x] Outside-work approval cleared (confirmed by Arnav 2026-11-04); public repo github.com/arnava2004/GuardFork.
 - [ ] GCP credits confirmed personal; L4/G4 quota: ____; credit expiry: ____.
 - [x] Harness-Zero commit pinned: `a4a6223241479c750fdab827c3a449bb1d41b99a`
 - [~] AppWorld images built locally (arm64, Docker Desktop; deps layer needed `gcc libc6-dev` for psutil). Harbor oracle on `07b42fd_1` = 1.0. Full `validate.py` not run (uses Linux `ip -j`).
