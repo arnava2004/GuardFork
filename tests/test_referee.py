@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from guardfork.fork.referee import run_referee, write_results
@@ -22,13 +23,14 @@ def _failed_run(T: int = 8, guard_at: int = 4) -> TrialRecord:  # noqa: N803
     return TrialRecord(Path("trialX"), "evaljob", "aaaaaaa_1", 0.0, None, 60.0, turns, events)
 
 
-def _fake_launch(true_t_star: int, tmp: Path, K: int = 8):  # noqa: N803
-    launched: list[int] = []
+def _fake_launch(true_t_star: int, tmp: Path, alive: float = 0.75):  # noqa: N803
+    """Each continuation at s_t passes with rate `alive` if t <= t*, else 0."""
+    launched: list[tuple[int, int, str]] = []
 
     def launch(plan_path: Path, k: int, job_name: str) -> Path:
         t = json.loads(plan_path.read_text())["fork_turn"]
-        launched.append(t)
-        passes = 6 if t <= true_t_star else 0
+        launched.append((t, k, job_name))
+        passes = round(alive * k) if t <= true_t_star else 0
         job = tmp / job_name
         for j in range(k):
             trial = job / f"aaaaaaa_1__{j}"
@@ -42,77 +44,96 @@ def _fake_launch(true_t_star: int, tmp: Path, K: int = 8):  # noqa: N803
     return launch, launched
 
 
-def test_referee_bisects_to_collapse_turn(tmp_path):
-    rec = _failed_run(T=8, guard_at=6)
-    launch, launched = _fake_launch(true_t_star=3, tmp=tmp_path)
-    res = run_referee(rec, base_pass=(4, 8), K=8, launch=launch, plans_dir=tmp_path / "plans")
-    assert res.g == 6
-    assert res.t_star == 3 and res.values[3] == (6, 8) and res.values[4] == (0, 8)
-    assert sorted(launched) == sorted(set(launched))
-    out = write_results(res, tmp_path / "results")
-    oracle = json.loads((out / "oracle.json").read_text())
-    assert oracle["t_star"] == 3 and oracle["guards_version"] == "v1"
-    assert len(json.loads((out / "forks.json").read_text())) == 8 * len(launched)
+@dataclass
+class _Fit:
+    t_star: int | None
+    lo: int | None
+    hi: int | None
+    sensitivity: dict = field(default_factory=dict)
 
 
-def test_referee_records_probe_reasons_and_tags_eval_only(tmp_path):
-    rec = _failed_run(T=12, guard_at=4)
-    launch, launched = _fake_launch(true_t_star=2, tmp=tmp_path, K=4)
-    res = run_referee(rec, base_pass=(4, 8), K=4, launch=launch, plans_dir=tmp_path / "plans",
-                      max_probes=12, extra_turns={"judge_open": [5], "judge_claude": [10]})
-    # initial window {1, g-3=1, g-1=3, g=4, g+1=5}; judge_open adds {4,5,6}; claude {9,10,11}
-    assert res.probe_reasons[1] == ["initial"]
-    assert res.probe_reasons[4] == ["initial", "guard", "judge_open"]
-    assert res.probe_reasons[5] == ["initial", "judge_open"]
-    assert res.probe_reasons[6] == ["judge_open"]
-    for t in (9, 10, 11):
-        assert res.probe_reasons[t] == ["judge_claude"]
-    bisected = [t for t, r in res.probe_reasons.items() if r == ["bisection"]]
-    assert bisected, "bisection should still refine between the mandatory windows"
-    conts = res.continuations
-    claude_only = [c for c in conts if c["eval_only"]]
-    assert {c["turn"] for c in claude_only} == {9, 10, 11}
-    assert all(c["reasons"] == ["judge_claude"] for c in claude_only)
-    assert all(not c["eval_only"] for c in conts if c["turn"] not in (9, 10, 11))
-    out = write_results(res, tmp_path / "results")
-    oracle = json.loads((out / "oracle.json").read_text())
-    assert oracle["probe_reasons"]["10"] == ["judge_claude"]
-    assert oracle["n_eval_only"] == 3 * 4
-    forks = json.loads((out / "forks.json").read_text())
-    assert sum(f["eval_only"] for f in forks) == 12 and all("reasons" in f for f in forks)
-    assert res.t_star == 2
+def _step_oracle(values, *, v_s1, tau=0.5, **_):
+    """Stand-in for bayes_prior.fit_changepoint_oracle: first probed t above tau * v_s1
+    with every later probed value at or below it."""
+    thr = tau * v_s1
+    turns = sorted(values)
+    for i, t in enumerate(turns):
+        s, k = values[t]
+        later = turns[i + 1:]
+        if s / k > thr and later and all(values[u][0] / values[u][1] <= thr for u in later):
+            return _Fit(t, t, t, {0.3: t, 0.7: t})
+    return _Fit(None, None, None)
 
 
-def test_referee_extra_turns_shared_with_guard_window_are_not_eval_only(tmp_path):
-    rec = _failed_run(T=8, guard_at=4)
-    launch, _ = _fake_launch(true_t_star=3, tmp=tmp_path)
+def _probed(launched):
+    return sorted({t for t, _, _ in launched})
+
+
+def test_referee_v2_screen_grid_refine(tmp_path):
+    rec = _failed_run(T=12, guard_at=6)
+    launch, launched = _fake_launch(true_t_star=4, tmp=tmp_path)
     res = run_referee(rec, base_pass=(4, 8), K=8, launch=launch, plans_dir=tmp_path / "plans",
-                      extra_turns={"judge_claude": [4]})
-    assert res.probe_reasons[4] == ["initial", "guard", "judge_claude"]
-    assert not any(c["eval_only"] for c in res.continuations)
+                      grid_step=3, oracle=_step_oracle)
+    # grid {1, 4, 7, 10} + G1 window {5, 6, 7}; refinement brackets t*=4 -> {4, 5}
+    assert _probed(launched) == [1, 4, 5, 6, 7, 10]
+    assert res.probe_reasons[1][0] == "screen" and "grid" in res.probe_reasons[1]
+    assert res.probe_reasons[6][0].startswith("guard:")
+    assert res.values[4][1] == 16 and res.values[5][1] == 16 and res.values[7][1] == 8
+    assert "refine" in res.probe_reasons[4] and "refine" in res.probe_reasons[5]
+    assert res.t_star == 4 and (res.t_star_lo, res.t_star_hi) == (4, 4)
+    assert res.t_star_v1 == 4 and not res.refine_pending and not res.hopeless
+    assert res.v_s1 == (4 + 6 + 0.5) / (8 + 8 + 1)
+    out = write_results(res, tmp_path / "results")
+    oracle = json.loads((out / "oracle.json").read_text())
+    assert oracle["protocol"] == "v2" and oracle["t_star"] == 4 and oracle["guards_version"] == "v1"
+    assert len(json.loads((out / "forks.json").read_text())) == sum(k for _, k, _ in launched)
 
 
-def test_referee_flags_probes_without_graded_continuations(tmp_path):
-    rec = _failed_run(T=8, guard_at=6)
-
-    def empty_launch(plan_path, k, job_name):
-        job = tmp_path / job_name
-        job.mkdir(parents=True)
-        return job
-
-    res = run_referee(rec, base_pass=(4, 8), K=4, launch=empty_launch,
-                      plans_dir=tmp_path / "plans")
-    assert res.skipped and "no graded continuations" in res.skipped
+def test_referee_v2_hopeless_after_confirmation(tmp_path):
+    rec = _failed_run(T=12, guard_at=6)
+    launch, launched = _fake_launch(true_t_star=0, tmp=tmp_path)
+    res = run_referee(rec, base_pass=(4, 8), K=8, launch=launch, plans_dir=tmp_path / "plans",
+                      oracle=_step_oracle)
+    assert [(t, k) for t, k, _ in launched] == [(1, 8), (1, 8)]
+    assert res.hopeless and res.values[1] == (0, 16) and res.t_star is None
 
 
-def test_referee_skips_runs_without_nonterminal_guard(tmp_path):
-    rec = _failed_run(T=5, guard_at=99)
-    launch, launched = _fake_launch(1, tmp_path)
-    res = run_referee(rec, base_pass=(4, 8), K=8, launch=launch, plans_dir=tmp_path)
-    assert res.skipped and launched == []
+def test_referee_v2_probes_runs_without_guard(tmp_path):
+    rec = _failed_run(T=9, guard_at=99)
+    launch, launched = _fake_launch(true_t_star=5, tmp=tmp_path)
+    res = run_referee(rec, base_pass=(4, 8), K=8, launch=launch, plans_dir=tmp_path / "plans",
+                      grid_step=3, oracle=_step_oracle)
+    assert res.g is None and res.skipped is None
+    # grid {1, 4, 7}; the step fit puts t* at the last alive probed turn, 4; refine {4, 7}
+    assert _probed(launched) == [1, 4, 7]
+    assert {t for t, _, j in launched if j.endswith("-refine")} == {4, 7}
+    assert res.t_star == 4
 
 
-def test_referee_failed_probe_stops_without_oracle_label(tmp_path):
+def test_referee_v2_refine_pending_until_bayes_prior(tmp_path):
+    rec = _failed_run(T=12, guard_at=6)
+    launch, launched = _fake_launch(true_t_star=4, tmp=tmp_path)
+    res = run_referee(rec, base_pass=(4, 8), K=8, launch=launch, plans_dir=tmp_path / "plans")
+    assert res.refine_pending and res.t_star is None
+    assert all(k == 8 for _, k, _ in launched) and res.t_star_v1 == 4
+
+
+def test_referee_v2_claude_windows_are_eval_only_and_never_refined(tmp_path):
+    rec = _failed_run(T=14, guard_at=3)
+    launch, launched = _fake_launch(true_t_star=8, tmp=tmp_path)
+    res = run_referee(rec, base_pass=(4, 8), K=8, launch=launch, plans_dir=tmp_path / "plans",
+                      grid_step=4, extra_turns={"judge_claude": [11], "judge_open": [None]},
+                      oracle=_step_oracle)
+    # grid {1, 5, 9, 13}, G1 window {2, 3, 4}, Claude window {10, 11, 12}
+    assert res.probe_reasons[10] == ["judge_claude"] and res.probe_reasons[12] == ["judge_claude"]
+    eval_turns = {c["turn"] for c in res.continuations if c["eval_only"]}
+    assert eval_turns == {10, 11, 12}
+    # planning ignores Claude values: t* = 5 from {1..5 alive, 9 dead}, bracket {5, 9}
+    assert {t for t, _, j in launched if j.endswith("-refine")} == {5, 9}
+    assert res.t_star == 5
+
+
+def test_referee_v2_failed_probe_stops_without_label(tmp_path):
     rec = _failed_run(T=8, guard_at=6)
     launched = []
 
@@ -123,29 +144,14 @@ def test_referee_failed_probe_stops_without_oracle_label(tmp_path):
         return job
 
     res = run_referee(rec, base_pass=(4, 8), K=4, launch=empty_launch,
-                      plans_dir=tmp_path / "plans")
+                      plans_dir=tmp_path / "plans", oracle=_step_oracle)
     assert res.failed_probes == [1] and len(launched) == 1
-    assert res.t_star is None and res.t_star_drop is None
+    assert res.t_star is None and res.t_star_v1 is None and "no graded" in res.skipped
 
 
-def test_referee_pools_s1_probe_into_v_s1(tmp_path):
-    rec = _failed_run(T=8, guard_at=6)
-    launch, _ = _fake_launch(true_t_star=3, tmp=tmp_path, K=4)
-    res = run_referee(rec, base_pass=(1, 2), K=4, launch=launch, plans_dir=tmp_path / "plans")
-    assert res.v_s1_base == (1 + 0.5) / (2 + 1)
-    # s_1 probe is 4/4 under the fake launcher: pooled Jeffreys (1 + 4 + 0.5) / (6 + 1)
-    assert res.v_s1 == (1 + 4 + 0.5) / (2 + 4 + 1)
-
-
-def test_referee_bisection_ignores_claude_values_and_promotes_requested_turns(tmp_path):
-    rec = _failed_run(T=12, guard_at=4)
-    launch, launched = _fake_launch(true_t_star=8, tmp=tmp_path, K=4)
-    res = run_referee(rec, base_pass=(4, 8), K=4, launch=launch, plans_dir=tmp_path / "plans",
-                      max_probes=12, extra_turns={"judge_claude": [9]})
-    # Bisection from the non-Claude values {1, 3, 4, 5} asks for 8, then 10, then 9: all
-    # already probed for Claude, so they are promoted instead of re-launched.
-    assert sorted(launched) == sorted(set(launched))
-    for t in (8, 9, 10):
-        assert res.probe_reasons[t] == ["judge_claude", "bisection"]
-    assert not any(c["eval_only"] for c in res.continuations)
-    assert res.t_star == 8
+def test_referee_v2_dense_probes_every_forkable_turn(tmp_path):
+    rec = _failed_run(T=7, guard_at=3)
+    launch, launched = _fake_launch(true_t_star=4, tmp=tmp_path)
+    res = run_referee(rec, base_pass=(4, 8), K=8, launch=launch, plans_dir=tmp_path / "plans",
+                      dense=True, oracle=_step_oracle)
+    assert _probed(launched) == [1, 2, 3, 4, 5, 6] and res.dense and res.t_star == 4

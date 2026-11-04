@@ -1,12 +1,14 @@
 """Monte Carlo referee (Q1 oracle) on fresh failed runs, K continuations per probed state.
 
     uv run python scripts/run_referee.py --base-jobs jobs/w0-eval-9b-s0 jobs/w0-eval-9b-s1 \
-        --n-runs 20 --K 8 --concurrency 4 \
+        --n-runs 20 --K 8 --grid-step 3 --concurrency 4 \
         --student-model openai:mlx-community/Qwen3.5-9B-4bit
 
 Dev-set jobs/tasks (config/dev_set.toml) are excluded unless --allow-dev (smoke tests only).
 Results go to results/<job>/<trial>/{oracle.json,forks.json}; the viewer shows them.
-Re-running skips trials that already have oracle.json and reuses finished probe jobs (their
+v2 protocol (guardfork/fork/referee.py): s1 screen, candidate grid, K=16 refinement. Re-running
+skips trials that already have a final oracle.json (one with refine_pending is redone, reusing
+every finished probe job) and reuses finished probe jobs (their
 env-seconds are not charged to the cost ledger again). Judge picks from
 <judge-root>/<job>/<trial>/judge_<slot>.json (--judge-slots) add mandatory {j-1, j, j+1}
 probe windows. A probe with no graded continuation stops that trial: no oracle.json is
@@ -58,7 +60,10 @@ def main() -> int:
     ap.add_argument("--n-runs", type=int, default=20)
     ap.add_argument("--K", type=int, default=8)
     ap.add_argument("--concurrency", type=int, default=4)
-    ap.add_argument("--max-probes", type=int, default=10)
+    ap.add_argument("--grid-step", type=int, default=3,
+                    help="thinned grid step (pre-registered: 3 on 9B, 2 on 4B)")
+    ap.add_argument("--dense", action="store_true",
+                    help="probe every forkable turn (the 10-15 dense runs)")
     ap.add_argument("--band", type=float, nargs=2, default=(0.3, 0.8))
     ap.add_argument("--min-samples", type=int, default=8)
     ap.add_argument("--allow-dev", action="store_true", help="smoke tests only")
@@ -115,13 +120,13 @@ def main() -> int:
 
     for rec in runs:
         out = args.results_dir / rec.job / rec.trial_dir.name / "oracle.json"
-        if out.is_file():
+        if out.is_file() and not json.loads(out.read_text()).get("refine_pending"):
             print(f"skip {rec.trial_dir.name}: oracle.json exists", flush=True)
             continue
         reused_seconds[0] = 0.0
         res = run_referee(rec, base_pass=counts.get(rec.task_id or "", (0, 0)), K=args.K,
                           launch=launch, plans_dir=forks_dir / "plans",
-                          max_probes=args.max_probes,
+                          grid_step=args.grid_step, dense=args.dense,
                           extra_turns=judge_picks(rec, args.judge_root, args.judge_slots))
         ledger.charge(CostEntry("referee", res.trial_id, res.env_seconds - reused_seconds[0],
                                 0.0, 0, 0))
@@ -133,8 +138,10 @@ def main() -> int:
             continue
         write_results(res, args.results_dir)
         vals = {t: f"{p}/{n}" for t, (p, n) in sorted(res.values.items())}
-        print(f"{res.trial_id}: T={res.T} g={res.g} t*={res.t_star} drop={res.t_star_drop} "
-              f"V={vals} {res.skipped or ''}", flush=True)
+        star = "pending (bayes_prior)" if res.refine_pending else (
+            f"{res.t_star} [{res.t_star_lo}, {res.t_star_hi}]")
+        print(f"{res.trial_id}: T={res.T} g={res.g} t*={star} v1={res.t_star_v1} "
+              f"drop={res.t_star_drop} V={vals} {res.skipped or ''}", flush=True)
     return 0
 
 

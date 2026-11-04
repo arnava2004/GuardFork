@@ -1,6 +1,10 @@
-"""Monte Carlo probe schedule around the first non-terminal guard."""
+"""Monte Carlo probe schedules: the v2 candidate-augmented grid (`candidate_grid`, used by
+the referee) and the v1 guard window + bisection (`initial_probes`, `next_probe`; kept for
+the simulated `bisection_*` search policies and the v1 sensitivity analysis)."""
 
 from __future__ import annotations
+
+from collections.abc import Iterable
 
 
 def initial_probes(g: int, T: int) -> list[int]:  # noqa: N803
@@ -28,3 +32,19 @@ def next_probe(values: dict[int, float], v_s1: float, K: int, T: int) -> int | N
     if last < T and values[last] > threshold:
         return (last + T) // 2
     return None
+
+
+def candidate_grid(T: int, *, step: int, guard_turns: Iterable[int | None] = (),  # noqa: N803
+                   judge_turn: int | None = None, entropy_turn: int | None = None,
+                   judge_turns: Iterable[int | None] = ()) -> list[int]:
+    """Thinned grid every `step` turns from 1, plus {x-1, x, x+1} windows around every guard
+    first firing, every judge pick (`judge_turns`, one per judge slot; `judge_turn` kept for
+    compatibility) and the entropy peak, clipped to [1, T], sorted."""
+    if T < 1 or step < 1:
+        raise ValueError("need T >= 1 and step >= 1")
+    grid = set(range(1, T + 1, step))
+    for x in (*guard_turns, judge_turn, *judge_turns, entropy_turn):
+        if x is None:
+            continue
+        grid.update(u for u in (x - 1, x, x + 1) if 1 <= u <= T)
+    return sorted(grid)

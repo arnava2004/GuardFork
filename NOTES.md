@@ -218,3 +218,36 @@ the plan's rule applies (switch to SpreadsheetBench Verified). The Monte Carlo r
 - Sampling: `config/sampling.toml` is now `qwen-thinking-code-v2` with `max_tokens = 4096` on
   both machines (0.4% of 8444 Mac 9B completions hit 4096; p99 1546). Runs before this entry
   used v1 (same values, cap applied by the proxy on mlx only).
+
+### 2026-11-04 Referee moved to the v2 protocol; open decisions and doc conflicts
+
+- `fork/referee.py` now follows PREREGISTRATION "Screening and probing": s1 screen at K=8
+  (+8 to confirm 0/8; 0/16 = `hopeless`), then K at every turn of `probe_plan.candidate_grid`
+  (thinned grid `--grid-step`, {x-1, x, x+1} around each guard's first firing and every judge
+  pick), `--dense` for the dense runs, then +8 at the two turns bracketing the primary
+  change-point. Runs with no non-terminal guard are no longer skipped (v1 conditioned the
+  pool on a guard firing). v1 bisection is gone from the referee; it stays as simulated
+  search policies.
+- The primary oracle is `bayes_prior.fit_changepoint_oracle`; until it exists the referee
+  writes `refine_pending: true` with no primary t* (v1 `t_star_v1` and `t_star_drop` still
+  reported), and a rerun after implementation reuses every finished probe job.
+- Oracle input includes the run's end state `{T+1: (0, K)}` (failed run, reward 0).
+- Open, Arnav's call:
+  - **Pool selection.** `run_referee.py` still selects failures by base-pass band
+    (`--band 0.3 0.8`, `--min-samples 8`), a v1 rule the v2 pre-registration does not state
+    ("s1 screen for every candidate failed run"). Decide the candidate definition before the
+    GPU referee and write it into PREREGISTRATION.
+  - **Entropy-peak window.** `entropy_peak_turn` exists, but proxy records carry no trial id,
+    so a run's records cannot be matched yet. Either have the proxy log a trial tag or match
+    by message prefix; pass the peak as `extra_turns={"entropy": [e]}`.
+  - **G4.** `to_trajectory` never sets `allowed_apps`, so the "outside allowed apps" branch
+    never fires, and the code checks app use, not mutation. Fixing it is a guards-v2 bump.
+  - **Split wording.** The Mac screen `w0-screen-9b-t06-s12` ran on all 32 evaluation
+    scenarios (per-task pass counts were computed), so "untouched" and amendment 1's
+    "nothing else ... inspected" are inaccurate.
+- Doc conflicts to reconcile (found while drafting the paper): Q2 MDE 9.5-10 TGC pts
+  (guardfork.md) vs 4-8 (FRONTIER_TANGENTS); "~5xK continuations per failure" (Q2-a, J-lens
+  table) vs the v2 grid; G2 "near-identical" in the plan vs exact match in code; G5 reads
+  run-level completion status despite the no-lookahead claim; the credit pilot is called
+  "Section 5" but has no slot in the paper skeleton; t* is quantified over 1..T but
+  forkable turns stop at T-1.

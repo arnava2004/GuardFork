@@ -23,7 +23,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from guardfork.fork.probe_plan import next_probe
+from guardfork.fork.probe_plan import candidate_grid, next_probe  # noqa: F401 (re-export)
 from guardfork.guards.rules import GuardFiring, evaluate
 from guardfork.q1.localization import localizer_turns
 from guardfork.stats import bayes_prior
@@ -35,22 +35,6 @@ WINDOWS = (0, 1, 2, 3)
 
 
 # ---------------------------------------------------------------------------- grid and snapping
-
-
-def candidate_grid(T: int, *, step: int, guard_turns: Iterable[int | None] = (),  # noqa: N803
-                   judge_turn: int | None = None, entropy_turn: int | None = None,
-                   judge_turns: Iterable[int | None] = ()) -> list[int]:
-    """Thinned grid every `step` turns from 1, plus {x-1, x, x+1} windows around every guard
-    first firing, every judge pick (`judge_turns`, one per judge slot; `judge_turn` kept for
-    compatibility) and the entropy peak, clipped to [1, T], sorted."""
-    if T < 1 or step < 1:
-        raise ValueError("need T >= 1 and step >= 1")
-    grid = set(range(1, T + 1, step))
-    for x in (*guard_turns, judge_turn, *judge_turns, entropy_turn):
-        if x is None:
-            continue
-        grid.update(u for u in (x - 1, x, x + 1) if 1 <= u <= T)
-    return sorted(grid)
 
 
 def snap(t: int, probed: Iterable[int]) -> int:
