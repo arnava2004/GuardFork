@@ -58,8 +58,9 @@ it writes".
 - [ ] **ELPO** — MC rollout trees for step localization. [arXiv 2602.09598](https://arxiv.org/abs/2602.09598)
 - [ ] **Math-Shepherd** — MC continuation labels for steps (the oracle idea). [arXiv 2312.08935](https://arxiv.org/abs/2312.08935)
 - [ ] **VinePPO** — MC value estimates from intermediate states. [arXiv 2410.01679](https://arxiv.org/abs/2410.01679)
-- [ ] Spec tests: `tests/test_guards_spec.py`, `tests/test_oracle_spec.py`, and yours in
-      `tests/handwritten/test_bayes_prior_spec.py`. **I wrote these from the plan; check that each
+- [ ] Spec tests: `tests/test_guards_spec.py`, `tests/test_oracle_spec.py`, and
+      `tests/test_bayes_prior_spec.py` (bayes_prior was agent-implemented on 2026-11-05 at your
+      direction; read it against these specs). **I wrote these from the plan; check that each
       one says what you mean** (especially G2, G5, t*, and forkability) before implementing.
 
 ## 5. Before the Q1 statistics (Weekends 3–4)
@@ -101,5 +102,4 @@ For each file: does it do what its docstring says, does it ever write outside `r
 - [ ] Forking and the referee (`fork/harbor_replay.py`, `fork/referee.py`,
       `fork/replay_checks.py`), `q1/` (localization, simulate_search, triage), `train/`
       (credit, prefix_drift, export, pairs), `judge.py`, `sampling.py`, `cost.py`, `manifest.py`.
-- [ ] `uv run pytest` (everything except yours), `-m handwritten` (bayes_prior, fails until
-      you write it).
+- [ ] `uv run pytest` (all specs, bayes_prior included).

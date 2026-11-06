@@ -12,9 +12,10 @@ probing" and "Primary oracle").
 3. **Refinement.** The primary oracle (`oracle`, default
    `stats.bayes_prior.fit_changepoint_oracle`) is fit to the non-eval-only values; the two
    probed turns bracketing its t* get `refine_k` more continuations (K = 16 there), then the
-   oracle is refit on all values. Until `bayes_prior` is implemented the oracle raises
-   `NotImplementedError`: the result then has `refine_pending = True` and no primary t*,
-   and a rerun after implementation reuses every finished probe job.
+   oracle is refit on all values. An oracle that raises `NotImplementedError` leaves the
+   result with `refine_pending = True` and no primary t* (this is how the Mac smoke
+   results were written before `bayes_prior` existed); a rerun reuses every finished probe
+   job.
 
 The oracle sees the probed values plus the run's own end state `{T + 1: (0, K)}` (a failed
 run, reward 0). `t_star_v1` (adjacent-pair rule, `stats.oracle`) and `t_star_drop` are

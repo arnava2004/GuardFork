@@ -228,11 +228,11 @@ def test_elpo_bel_undefined_when_s1_collapsed():
     assert elpo_bel(8)(SearchInputs(_plain(4), v_s1=0.75), tbl) is None
 
 
-def test_guard_bayesect_raises_until_arnav_implements():
+def test_guard_bayesect_finds_staircase_collapse():
     tbl = SnappingProbeTable(10, values=STAIR)
     inputs = SearchInputs(_plain(10), v_s1=0.75)
-    with pytest.raises(NotImplementedError):
-        guard_bayesect(LaplaceGuardPrior(), 8)(inputs, tbl)
+    assert guard_bayesect(LaplaceGuardPrior(), 8)(inputs, tbl) == 5
+    assert 0 < tbl.continuations_used < 10 * 8
 
 
 def test_guard_bayesect_with_mocked_prior(monkeypatch):

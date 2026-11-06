@@ -7,7 +7,8 @@
 # ("guardfork-design-v2", referee-smoke scenarios protected). Used for guard tuning, judge
 # prompt tuning, Laplace-lag calibration, thresholds. Amendment 1 (2026-10-25,
 # PREREGISTRATION.md) moved the 2 referee-smoke scenarios here after the Mac smoke probed them.
-# Evaluation (32 scenarios, 96 tasks): 22 untouched official-train + 10 untouched official-dev.
+# Evaluation (32 scenarios, 96 tasks): 22 official-train + 10 official-dev, never used for
+# tuning. Not untouched: the Mac pilot screen ran base rollouts on all of them (amendment 2).
 # Q1 headline curves use evaluation scenarios only. Any later rule change is a new guards
 # version, reported separately.
 

@@ -2,7 +2,8 @@
 
 Injects token-id and logprob requests into chat completions and appends one JSONL
 record per call (request, response, prompt/completion token ids, logprobs, latency).
-The response is returned to the client unchanged.
+The response is returned to the client unchanged. `response_id` (the completion id) is the
+join key to Harbor trials (`telemetry.proxy_log.index_by_trial`).
 
     python -m guardfork.serve.proxy --upstream http://127.0.0.1:8000 --port 8100 \
         --backend vllm --log runs/proxy/w0_k0.jsonl
@@ -83,6 +84,7 @@ def extract_response_fields(resp: dict[str, Any]) -> dict[str, Any]:
     if prompt_ids is None and choices and isinstance(choices[0], dict):
         prompt_ids = choices[0].get("prompt_token_ids")
     return {
+        "response_id": resp.get("id"),
         "prompt_token_ids": prompt_ids,
         "completion_token_ids": completion_ids,
         "completion_logprobs": logprobs,

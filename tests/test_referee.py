@@ -110,10 +110,25 @@ def test_referee_v2_probes_runs_without_guard(tmp_path):
     assert res.t_star == 4
 
 
-def test_referee_v2_refine_pending_until_bayes_prior(tmp_path):
+def test_referee_v2_with_real_changepoint_oracle(tmp_path):
     rec = _failed_run(T=12, guard_at=6)
     launch, launched = _fake_launch(true_t_star=4, tmp=tmp_path)
     res = run_referee(rec, base_pass=(4, 8), K=8, launch=launch, plans_dir=tmp_path / "plans")
+    # grid {1, 4, 7, 10} + G1 window {5, 6, 7}: alive through 4, dead from 5; refine {4, 5}
+    assert not res.refine_pending and res.t_star == 4 and res.t_star_v1 == 4
+    assert {t for t, _, j in launched if j.endswith("-refine")} == {4, 5}
+    assert res.t_star_lo <= 4 <= res.t_star_hi
+    assert set(res.t_star_sensitivity) == {0.3, 0.7}
+
+
+def test_referee_v2_refine_pending_when_oracle_unavailable(tmp_path):
+    def pending(*_a, **_k):
+        raise NotImplementedError
+
+    rec = _failed_run(T=12, guard_at=6)
+    launch, launched = _fake_launch(true_t_star=4, tmp=tmp_path)
+    res = run_referee(rec, base_pass=(4, 8), K=8, launch=launch, plans_dir=tmp_path / "plans",
+                      oracle=pending)
     assert res.refine_pending and res.t_star is None
     assert all(k == 8 for _, k, _ in launched) and res.t_star_v1 == 4
 

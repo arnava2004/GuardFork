@@ -1,5 +1,5 @@
-"""Specs for stats/bayes_prior.py (Arnav hand-writes; these fail with NotImplementedError
-until then). Run: `uv run pytest -q -m handwritten tests/handwritten/test_bayes_prior_spec.py`."""
+"""Specs for stats/bayes_prior.py, written before the implementation (originally for
+Arnav to hand-write against; implemented by an agent at Arnav's direction on 2026-11-05)."""
 
 from __future__ import annotations
 
@@ -12,8 +12,6 @@ from guardfork.stats.bayes_prior import (
     next_bayes_probe,
     sequential_beta_stop,
 )
-
-pytestmark = pytest.mark.handwritten
 
 # Staircase V-hat at K = 8: alive through s_5, collapsed from s_6 on. V~(s1) = 0.8.
 STAIRCASE = {1: (7, 8), 2: (7, 8), 3: (6, 8), 4: (6, 8), 5: (6, 8), 6: (0, 8), 7: (0, 8),

@@ -1,9 +1,16 @@
-"""Read `guardfork.serve.proxy` JSONL logs."""
+"""Read `guardfork.serve.proxy` JSONL logs and join them to Harbor trials.
+
+The proxy cannot see Harbor's trial name (the agent calls it as a plain OpenAI endpoint), so
+records are joined offline: every chat completion carries a unique response id
+(`chatcmpl-...`), which the proxy logs and Harness-Zero stores per turn in the trial's
+`trajectory.jsonl` (`raw_original.response_metadata.id`). `trial_response_ids` reads those
+ids; `records_for_trial` / `index_by_trial` return the matching records keyed by the
+referee's trial id `<job>/<trial_dir>`."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -58,6 +65,11 @@ class ProxyRecord:
     def ok(self) -> bool:
         return self.raw.get("status") == 200
 
+    @property
+    def response_id(self) -> str | None:
+        """Completion id; logged at top level since proxy v2, read from the response before."""
+        return self.raw.get("response_id") or (self.raw.get("response") or {}).get("id")
+
 
 def iter_proxy_log(path: Path) -> Iterator[ProxyRecord]:
     files = sorted(path.glob("**/*.jsonl")) if path.is_dir() else [path]
@@ -68,3 +80,35 @@ def iter_proxy_log(path: Path) -> Iterator[ProxyRecord]:
                     yield ProxyRecord(json.loads(line))
                 except json.JSONDecodeError:
                     continue
+
+
+def trial_response_ids(events: Iterable[dict[str, Any]]) -> list[str]:
+    """Completion ids of a trial's live turns, in order, from its `reviewed_turn` events."""
+    ids = []
+    for e in events:
+        if e.get("type") != "reviewed_turn":
+            continue
+        rid = ((e.get("raw_original") or {}).get("response_metadata") or {}).get("id")
+        if rid:
+            ids.append(rid)
+    return ids
+
+
+def records_for_trial(records: Iterable[ProxyRecord], events: Iterable[dict[str, Any]],
+                      ) -> list[ProxyRecord]:
+    """Proxy records whose response id belongs to the trial, in the trial's turn order."""
+    by_id = {r.response_id: r for r in records if r.response_id}
+    return [by_id[rid] for rid in trial_response_ids(events) if rid in by_id]
+
+
+def index_by_trial(records: Iterable[ProxyRecord], trials: Iterable[Any],
+                   ) -> dict[str, list[ProxyRecord]]:
+    """`<job>/<trial_dir>` -> that trial's proxy records, for `TrialRecord`-like objects
+    (`job`, `trial_dir`, `events`). Trials with no matching record are omitted."""
+    records = list(records)
+    out = {}
+    for t in trials:
+        matched = records_for_trial(records, t.events)
+        if matched:
+            out[f"{t.job}/{t.trial_dir.name}"] = matched
+    return out

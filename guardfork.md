@@ -35,13 +35,13 @@ Q1 and Section 5 predictions (P1–P8) live in `PREREGISTRATION.md`, which is bi
   - G1 `INVALID_ACTION` (evaluated first): `raw_original.invalid_tool_calls` non-empty, >1 tool call, tool name ≠ `execute`, empty command, empty message, visible `content` with code fences / `appworld exec`, or `reasoning_content` with structural tool markup (`<tool_call>`, `<function=`).
   - G2 `LOOP`: identical/near-identical AST API signature + outcome ≥ 3 times, or A/B alternation over 6 turns.
   - G3 `FAILED_PRECONDITION`: HTTP 401/403/404/422 API errors, or entity IDs never observed in prior tool outputs (held-out guard in the Q2 ablation).
-  - G4 `CONSTRAINT_VIOLATION`: mutating an app outside the task's allowed apps, or unrequested destructive write/delete.
+  - G4 `CONSTRAINT_VIOLATION`: destructive call (`delete_`/`remove_`/`drop_`/`destroy_`/`unlink`). The allowed-apps branch is inert by design: no task-scope list is available without grader-side metadata (PREREGISTRATION amendment 2).
   - G5 `UNVERIFIED_COMPLETION` (only if not G1): no tool call while completion status is not True, or `complete_task` without a post-write verification read.
   - `MAX_TURNS` / `CONTEXT_OVERFLOW` / `REPLAY_DIVERGED` are `TrajectoryStatus` values, not localizers.
 
 ## v2 Protocol (binding; details in `PREREGISTRATION.md`)
 
-- **Split:** scenario-level design (17 scenarios, incl. all 8 debugged ones and the 2 referee-smoke ones) vs evaluation (32 untouched scenarios). Headline Q1 uses evaluation only.
+- **Split:** scenario-level design (17 scenarios, incl. all 8 debugged ones and the 2 referee-smoke ones) vs evaluation (32 scenarios never used for tuning; base-screened on the Mac, PREREGISTRATION amendment 2). Headline Q1 uses evaluation only.
 - **Single bf16 vLLM stack** for the Q1 failure pool and continuations, after a GPU concurrency pilot (C in {8, 16, 32}). Mac 4-bit runs are design/pilot only.
 - **s1 screen** at K = 8; hopeless = 0/8 confirmed 0/16; everything ≥ 1/16 is eligible.
 - **Candidate-augmented probe grid:** thinned grid plus mandatory windows around each guard's first firing, the open-weight judge pick and the original run's entropy peak; K = 16 refinement around the candidate change-point; deterministic snapping; 10–15 fully dense runs to bound snapping bias.

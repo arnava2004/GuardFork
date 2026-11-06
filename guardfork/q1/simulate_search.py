@@ -11,8 +11,8 @@ Simulator unbiasedness (pre-registered): on K = 16 states use `split_half` (8 ro
 t*, 8 independent ones drive the search); elsewhere draw `beta_bootstrap_values` and fresh
 binomial outcomes with `binomial_table`.
 
-`guard_bayesect` calls `guardfork.stats.bayes_prior`, which Arnav hand-writes; it raises
-`NotImplementedError` until then (tests mock the module).
+`guard_bayesect` calls `guardfork.stats.bayes_prior` (Laplace prior, sequential Beta
+stopping, entropy-minimising next probe).
 """
 
 from __future__ import annotations
@@ -485,12 +485,11 @@ def guard_bayesect(prior: bayes_prior.LaplaceGuardPrior, K: int, *,  # noqa: N80
     non-terminal guard firing. With `judge_slot` (e.g. `judge_open`, `judge_claude`) the
     judge's distribution from `inputs.judge_dists` multiplies that prior as a zero-rollout
     likelihood (`judge_likelihood`, floored mixture) before any probe; the multiplication
-    is done here, so Arnav's `bayes_prior` stubs keep their signatures. Each probe asks
+    is done here, so `bayes_prior` keeps its spec'd signatures. Each probe asks
     `next_bayes_probe`; at the chosen turn, rollouts are consumed `step` at a time until
     `sequential_beta_stop` says the state is decisive (or K is spent). The binomial
     likelihood of `(s, k)` under candidate c uses `p = v_s1` for `t <= c` (alive) and
     `p = p_dead` (default `tau * v_s1 / 2`) for `t > c`. Returns the posterior mode.
-    Raises `NotImplementedError` until Arnav implements `guardfork.stats.bayes_prior`.
     """
     if K <= 0 or step <= 0:
         raise ValueError("K and step must be positive")

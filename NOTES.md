@@ -232,7 +232,7 @@ the plan's rule applies (switch to SpreadsheetBench Verified). The Monte Carlo r
   writes `refine_pending: true` with no primary t* (v1 `t_star_v1` and `t_star_drop` still
   reported), and a rerun after implementation reuses every finished probe job.
 - Oracle input includes the run's end state `{T+1: (0, K)}` (failed run, reward 0).
-- Open, Arnav's call:
+- Open, Arnav's call (all resolved 2026-11-05, see below and PREREGISTRATION amendment 2):
   - **Pool selection.** `run_referee.py` still selects failures by base-pass band
     (`--band 0.3 0.8`, `--min-samples 8`), a v1 rule the v2 pre-registration does not state
     ("s1 screen for every candidate failed run"). Decide the candidate definition before the
@@ -251,3 +251,33 @@ the plan's rule applies (switch to SpreadsheetBench Verified). The Monte Carlo r
   run-level completion status despite the no-lookahead claim; the credit pilot is called
   "Section 5" but has no slot in the paper skeleton; t* is quantified over 1..T but
   forkable turns stop at T-1.
+
+### 2026-11-05 bayes_prior implemented; open decisions resolved (amendment 2)
+
+- `guardfork/stats/bayes_prior.py` is implemented (agent-written at Arnav's direction; AGENTS
+  rule 1 updated). Change-point oracle = maximum-likelihood single step over probed turns,
+  restricted to p_hi > tau >= p_lo, ties early; 90% interval from 1000 Beta-posterior refits
+  (nearest-rank, undefined replicates dropped, widened to contain t*). Laplace prior renormalised
+  over candidates before mixing (so the `lam / n` floor is exact); `fit` = median shift + 20 EM
+  steps, scale floored at 0.1 turns. Sequential stop uses the exact integer Beta CDF (binomial
+  tail). Next probe = expected-entropy minimiser. Stdlib only. The 12 specs moved to
+  `tests/test_bayes_prior_spec.py` and run by default; the `handwritten` marker is gone. 214 pass.
+- The referee now gets a primary t* with no `refine_pending`. The two Mac smoke oracle.json files
+  (design split now) predate this; rerunning them would reuse their probe jobs and add only the
+  refinement probes.
+- **Trial ids for proxy records:** the proxy cannot see Harbor's trial name, so records are joined
+  offline by completion id (`response_id`, logged top-level from now on; older logs read it from
+  `response.id`), which Harness-Zero stores per turn. `proxy_log.index_by_trial` gives
+  `<job>/<trial> -> records`. On the Mac screen: 250/250 trials joined, every turn matched.
+  `run_referee.py --proxy-log` adds the base run's surprisal peak as an `entropy_peak` window.
+- **Pool:** `run_referee.py --band` defaults to `0 1` (every graded failure); `--n-runs` takes a
+  seeded sha256-ordered sample (`--sample-seed`).
+- **G4:** stays guards-v1; documented as destructive-call only. No allowed-app source exists without
+  grader-side metadata.
+- **Split wording:** amendment 2 corrects amendment 1 (the Mac screen ran on all 32 evaluation
+  scenarios; aggregate stats were computed; no other evaluation run was probed or judged; guards-v1
+  froze at 00:08, the screen started 03:07). "Untouched" dropped from dev_set.toml, guardfork.md,
+  PREREGISTRATION.
+- Still open: P1-P8 (Arnav), the paper draft (untracked), judge model ids and judge_freeze, the
+  doc conflicts listed in the 2026-11-04 entry, Lambda runs.
+

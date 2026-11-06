@@ -24,7 +24,3 @@ select = ["E", "F", "I", "B", "UP", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not handwritten'"
-markers = [
-    "handwritten: specs for Arnav's hand-written bayes_prior.py; fail until implemented (run with -m handwritten)",
-]

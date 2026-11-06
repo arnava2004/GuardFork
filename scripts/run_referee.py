@@ -11,14 +11,19 @@ skips trials that already have a final oracle.json (one with refine_pending is r
 every finished probe job) and reuses finished probe jobs (their
 env-seconds are not charged to the cost ledger again). Judge picks from
 <judge-root>/<job>/<trial>/judge_<slot>.json (--judge-slots) add mandatory {j-1, j, j+1}
-probe windows. A probe with no graded continuation stops that trial: no oracle.json is
-written, the failed probe job is deleted so the next run relaunches it, and Harbor's output
-is kept in <forks-dir>/<job_name>.harbor.log.
+probe windows; with --proxy-log, the base run's token-surprisal peak (its proxy records
+joined by completion id) adds an `entropy_peak` window. Candidates are every graded failed
+run outside the design split (pre-registered; --band narrows this for cost only and must be
+logged as a deviation), taken in a seeded order so --n-runs is a random sample. A probe
+with no graded continuation stops that trial: no oracle.json is written, the failed probe
+job is deleted so the next run relaunches it, and Harbor's output is kept in
+<forks-dir>/<job_name>.harbor.log.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -37,6 +42,8 @@ from guardfork.freeze import load_dev_set  # noqa: E402
 from guardfork.judge import judge_path  # noqa: E402
 from guardfork.measure.w0 import per_task_pass  # noqa: E402
 from guardfork.q1.localization import eligible_failed_runs  # noqa: E402
+from guardfork.q1.simulate_search import entropy_peak_turn  # noqa: E402
+from guardfork.telemetry.proxy_log import iter_proxy_log, records_for_trial  # noqa: E402
 from guardfork.telemetry.trials import TrialRecord, iter_trials  # noqa: E402
 
 
@@ -52,6 +59,11 @@ def judge_picks(rec: TrialRecord, judge_root: Path, slots: list[str]) -> dict[st
     return picks
 
 
+def sample_order(rec: TrialRecord, seed: int) -> str:
+    """Seeded pseudo-random sort key, stable across machines (PYTHONHASHSEED-independent)."""
+    return hashlib.sha256(f"{seed}:{rec.job}/{rec.trial_dir.name}".encode()).hexdigest()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-jobs", type=Path, nargs="+", required=True)
@@ -64,7 +76,13 @@ def main() -> int:
                     help="thinned grid step (pre-registered: 3 on 9B, 2 on 4B)")
     ap.add_argument("--dense", action="store_true",
                     help="probe every forkable turn (the 10-15 dense runs)")
-    ap.add_argument("--band", type=float, nargs=2, default=(0.3, 0.8))
+    ap.add_argument("--band", type=float, nargs=2, default=(0.0, 1.0),
+                    help="base pass-rate band; anything narrower than 0 1 is a logged "
+                         "deviation from the pre-registered pool")
+    ap.add_argument("--sample-seed", type=int, default=0,
+                    help="seed for the order --n-runs samples from")
+    ap.add_argument("--proxy-log", type=Path, default=None,
+                    help="proxy JSONL (file or dir) of the base runs, for entropy-peak windows")
     ap.add_argument("--min-samples", type=int, default=8)
     ap.add_argument("--allow-dev", action="store_true", help="smoke tests only")
     ap.add_argument("--student-model", default="openai:mlx-community/Qwen3.5-9B-4bit")
@@ -85,7 +103,8 @@ def main() -> int:
     runs = eligible_failed_runs(records, counts, tuple(args.band), args.min_samples, dev)
     if args.trial:
         runs = [r for r in runs if r.trial_dir.name in set(args.trial)]
-    runs = runs[: args.n_runs]
+    runs = sorted(runs, key=lambda r: sample_order(r, args.sample_seed))[: args.n_runs]
+    proxy_records = list(iter_proxy_log(args.proxy_log)) if args.proxy_log else []
     print(f"{len(runs)} eligible failed runs (band {args.band}, >= {args.min_samples} samples)",
           flush=True)
     ledger = CostLedger(ROOT / "runs" / "cost" / "referee.jsonl")
@@ -124,10 +143,15 @@ def main() -> int:
             print(f"skip {rec.trial_dir.name}: oracle.json exists", flush=True)
             continue
         reused_seconds[0] = 0.0
+        extra = judge_picks(rec, args.judge_root, args.judge_slots)
+        if proxy_records:
+            peak = entropy_peak_turn(records_for_trial(proxy_records, rec.events))
+            if peak is not None:
+                extra["entropy_peak"] = [peak]
         res = run_referee(rec, base_pass=counts.get(rec.task_id or "", (0, 0)), K=args.K,
                           launch=launch, plans_dir=forks_dir / "plans",
                           grid_step=args.grid_step, dense=args.dense,
-                          extra_turns=judge_picks(rec, args.judge_root, args.judge_slots))
+                          extra_turns=extra)
         ledger.charge(CostEntry("referee", res.trial_id, res.env_seconds - reused_seconds[0],
                                 0.0, 0, 0))
         if res.failed_probes:
@@ -138,7 +162,7 @@ def main() -> int:
             continue
         write_results(res, args.results_dir)
         vals = {t: f"{p}/{n}" for t, (p, n) in sorted(res.values.items())}
-        star = "pending (bayes_prior)" if res.refine_pending else (
+        star = "pending (no oracle)" if res.refine_pending else (
             f"{res.t_star} [{res.t_star_lo}, {res.t_star_hi}]")
         print(f"{res.trial_id}: T={res.T} g={res.g} t*={star} v1={res.t_star_v1} "
               f"drop={res.t_star_drop} V={vals} {res.skipped or ''}", flush=True)

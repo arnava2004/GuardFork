@@ -12,8 +12,8 @@ that date are amendments, listed at the bottom with dates.
   untouched official-dev scenarios chosen by salted hash, plus the 2 referee-smoke scenarios
   (`60d0b5b`, `c901732`, official train; amendment 1). Used for guard tuning, judge-prompt
   tuning, lag-prior calibration and thresholds.
-- **Evaluation: 32 scenarios / 96 tasks** (22 untouched official-train + 10 untouched
-  official-dev). Headline Q1 curves use evaluation scenarios only. Scenario is the bootstrap
+- **Evaluation: 32 scenarios / 96 tasks** (22 official-train + 10 official-dev, never used for
+  tuning; the Mac pilot screen ran base rollouts on them, see amendment 2). Headline Q1 curves use evaluation scenarios only. Scenario is the bootstrap
   cluster.
 - `test_normal` (168 tasks) is used only for K0 and final Q2 evals (`allow_final=True`).
 
@@ -28,6 +28,9 @@ that date are amendments, listed at the bottom with dates.
 
 ## Screening and probing
 
+- **Candidate pool:** every graded failed run (reward 0, verifier ran) of the bf16 failure pool on
+  evaluation scenarios, with no base pass-rate band; when cost forces a subset it is a seeded
+  random sample (`run_referee.py --sample-seed`), never a band (amendment 2).
 - **s1 screen:** K = 8 continuations from s1 for every candidate failed run. **Hopeless** = 0/8,
   confirmed 0/16 with 8 more. Everything with ≥ 1/16 enters the localization pool. 0/16 tasks are
   not labelled environment faults automatically: cross-check whether 9B solves the task and
@@ -35,7 +38,8 @@ that date are amendments, listed at the bottom with dates.
 - **Probe set P per eligible failure** = union of: thinned grid (every 2nd turn on 4B, every 3rd on
   9B) at K = 8; mandatory {g−1, g, g+1} around the first firing g of each guard; {j−1, j, j+1}
   around the open-weight judge pick j; {e−1, e, e+1} around the original failed run's token-entropy
-  peak e (from the base run's logged logprobs); plus +8 rollouts (K = 16) at the two turns
+  peak e (from the base run's logged logprobs: proxy records joined to the run by completion id;
+  mean sampled-token surprisal, since `top_logprobs` are not logged); plus +8 rollouts (K = 16) at the two turns
   bracketing the candidate change-point.
 - **Snapping:** a search policy asking for an unmeasured turn t snaps to argmin over u in P of
   (|u − t|, u). **10–15 failures are probed fully dense (every turn)** to bound snapping bias.
@@ -45,7 +49,11 @@ that date are amendments, listed at the bottom with dates.
 - **t\* = change-point first-irrecoverable turn at τ = 0.5·V̂(s1)**: the first turn after which
   the fitted continuation value stays ≤ τ, from a change-point fit over all K·T outcomes, with a
   90% bootstrap credible interval [t\*_lo, t\*_hi]. Implemented in
-  `guardfork/stats/bayes_prior.py::fit_changepoint_oracle` (Arnav).
+  `guardfork/stats/bayes_prior.py::fit_changepoint_oracle`: maximum-likelihood single step over
+  the probed turns (pooled binomial levels p_hi up to c, p_lo after), restricted to steps with
+  p_hi > τ ≥ p_lo, ties to the earlier turn; t\* = c, undefined when no step qualifies. Interval:
+  1000 Beta-posterior parametric bootstrap refits, nearest-rank 5th/95th percentiles over
+  replicates with a defined t\*, widened to contain the point estimate.
 - **Sensitivity only:** τ in {0.3, 0.7}·V̂(s1); largest-drop t\*_drop; the v1 adjacent-pair rule
   in `guardfork/stats/oracle.py`.
 - **Simulator unbiasedness:** 8/8 split-half on the K = 16 states (8 rollouts define t\*, 8
@@ -58,7 +66,7 @@ that date are amendments, listed at the bottom with dates.
 `Response status code is 4`, `Error:`), `random`, `last_turn`, `entropy_peak`, `guards_raw`
 (first G1–G5), `guards_recovery_aware` (`g3_unrecovered` + G2/G4/G5), per-guard, `no_g3`,
 LLM judges, `bisection_fixed`, `bisection_early_stop`, `elpo_bel`, `guard_bayesect` (Laplace
-lag prior + sequential Beta stopping, Arnav) with the open-judge distribution as likelihood,
+lag prior + sequential Beta stopping) with the open-judge distribution as likelihood,
 and the same with the Claude distribution as a separate **eval-only** row, plus human labels
 where available. Primary metric: Hit(w = 1) minus analytic random, scenario-clustered
 bootstrap; cost in continuations per failure alongside.
@@ -106,3 +114,30 @@ with our two differences (on-policy learner values; deterministic harness-rule f
   with the base runs (it had used the base-run Jeffreys value only), mandatory windows can no
   longer be cut by `max_probes`, and a failed probe no longer yields an oracle label; the
   smoke's oracle.json files predate those fixes.
+- **2 (2026-11-05), split wording, pool, entropy peak, G4, oracle details.** Made before any
+  referee run on an evaluation scenario and before P1–P8 are filled.
+  - *Correction to amendment 1.* "Nothing else on the evaluation side was probed, judged or
+    inspected" was wrong. The Mac 9B-4bit pilot screen `w0-screen-9b-t06-s12` (2 sampled seeds on
+    125 non-design train147 tasks, 2026-10-25) ran base rollouts on all 32 evaluation scenarios.
+    Per-task pass counts and the aggregate W0 statistics in NOTES (TGC, SGC, guard false-alarm
+    rate K2, prompt tokens at the first guard K4) were computed over those runs, and the two smoke
+    failures of amendment 1 were picked from them. No other evaluation-side run was
+    referee-probed or judged. Whether individual evaluation trajectories were opened in the viewer
+    is not logged; none fed guard, prompt or threshold tuning (guards-v1 was frozen before the
+    screen). The evaluation scenarios stay as they are: the screen's runs are Mac pilot data and
+    never enter Q1 tables (single-stack rule), and the pool below does not select on its pass
+    counts. "Untouched" is dropped from the split description here and in `config/dev_set.toml`.
+  - *Candidate pool.* Every graded failed run, no pass-rate band (the referee script's v1
+    default `--band 0.3 0.8` is now `0 1`); subsets are seeded random samples. A band would
+    condition the pool on task difficulty and make P3 (hopeless share) uninterpretable.
+  - *Entropy peak.* Proxy records carry the completion id (`response_id`), which Harness-Zero
+    also stores per turn, so a run's records are joined exactly (250/250 Mac screen trials matched
+    on every turn). The statistic is mean sampled-token surprisal, not full-vocabulary entropy.
+  - *G4.* Analysed as implemented in guards-v1: it fires on destructive calls (`delete_`,
+    `remove_`, `drop_`, `destroy_`, `unlink`). The "apps outside the task" branch never fires,
+    because a trajectory carries no allowed-app list, and none is added: the only source would be
+    AppWorld's grader-side task metadata, which a free harness guard must not read. No
+    guards-v2 bump.
+  - *Implementation.* `bayes_prior.py` (oracle, Laplace prior, sequential Beta stopping,
+    next-probe rule) was implemented by an agent at Arnav's direction against the pre-written
+    specs, instead of being hand-written; the oracle details are stated under "Primary oracle".

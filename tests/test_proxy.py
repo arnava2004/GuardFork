@@ -114,3 +114,32 @@ def test_roundtrip_logs_and_passes_through(servers):
     with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=5) as resp:
         assert json.loads(resp.read()) == {"data": []}
     assert len(log.read_text().splitlines()) == 1
+
+
+def test_proxy_records_join_to_trials_by_completion_id(tmp_path):
+    from types import SimpleNamespace
+
+    from guardfork.telemetry.proxy_log import (
+        ProxyRecord,
+        index_by_trial,
+        records_for_trial,
+        trial_response_ids,
+    )
+
+    assert extract_response_fields({"id": "chatcmpl-a", "choices": []})["response_id"] == \
+        "chatcmpl-a"
+    logged = [ProxyRecord({"response_id": "chatcmpl-2"}),
+              ProxyRecord({"response": {"id": "chatcmpl-1"}}),  # pre-v2 log line
+              ProxyRecord({"response_id": "chatcmpl-other"})]
+
+    def turn(rid):
+        return {"type": "reviewed_turn", "raw_original": {"response_metadata": {"id": rid}}}
+
+    events = [{"type": "trial_start"}, turn("chatcmpl-1"), turn("chatcmpl-2"), turn("missing")]
+    assert trial_response_ids(events) == ["chatcmpl-1", "chatcmpl-2", "missing"]
+    assert [r.response_id for r in records_for_trial(logged, events)] == \
+        ["chatcmpl-1", "chatcmpl-2"]
+    trial = SimpleNamespace(job="job", trial_dir=tmp_path / "t__x", events=events)
+    lonely = SimpleNamespace(job="job", trial_dir=tmp_path / "t__y", events=[turn("none")])
+    index = index_by_trial(logged, [trial, lonely])
+    assert list(index) == ["job/t__x"] and len(index["job/t__x"]) == 2

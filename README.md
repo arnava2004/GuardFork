@@ -47,7 +47,7 @@ failed rollout ──► guards G1–G5 (0 model calls) ──► first non-term
 | G1 `INVALID_ACTION` | malformed or multiple tool calls, empty commands, leaked tool markup |
 | G2 `LOOP` | the same API call and outcome repeated, or A/B alternation |
 | G3 `FAILED_PRECONDITION` | HTTP 401/403/404/422, or entity IDs never seen in prior outputs |
-| G4 `CONSTRAINT_VIOLATION` | apps outside the task's scope, or destructive writes |
+| G4 `CONSTRAINT_VIOLATION` | destructive calls (`delete_*`, `remove_*`, `drop_*`, ...) |
 | G5 `UNVERIFIED_COMPLETION` | completing without a verification read |
 
 Guards are frozen (`guards-v1`, sha-pinned in `config/guards_freeze.toml`). A test fails on any
@@ -58,7 +58,8 @@ edit that isn't a version bump.
 - **Pre-registered.** `PREREGISTRATION.md` fixes the oracle, localizers and metrics before
   any evaluation run. Changes are dated amendments.
 - **Scenario-level split.** 17 design scenarios are used for tuning and 32 for evaluation
-  (`config/dev_set.toml`). `test_normal` only loads with `--final`.
+  (`config/dev_set.toml`). `test_normal` only loads with `--final`. Where the split was
+  touched, the pre-registration says so (amendments 1 and 2).
 - **Kill criteria first.** `config/kill.toml` defines go/no-go gates checked before any
   GPU-scale job.
 - **Exact replay.** Each fork re-executes commands 1..t−1 and asserts exact observation
@@ -71,9 +72,9 @@ edit that isn't a version bump.
 
 | | |
 |---|---|
-| ✅ | Guards, trajectory conversion, replay forking, MC referee, LLM-judge rows, Q1 table, search-policy simulator, DPO pair export, VM scripts, trajectory viewer. 201 offline tests. |
+| ✅ | Guards, trajectory conversion, replay forking, MC referee, LLM-judge rows, Q1 table, search-policy simulator, DPO pair export, VM scripts, trajectory viewer. 214 offline tests. |
 | ✅ | Mac pilot (Qwen3.5-4B/9B, 4-bit MLX) to validate the pipeline. These are not results. |
-| 🔨 | Change-point oracle and Bayesian guard prior (`guardfork/stats/bayes_prior.py`), hand-written. |
+| ✅ | Change-point oracle, Laplace guard prior, sequential Beta stopping (`guardfork/stats/bayes_prior.py`). |
 | ⏳ | Pre-registered predictions, then bf16 vLLM runs on GPU (K0 anchor, Q1 referee at K=8/16). |
 | ⏳ | Q2 training arms, a second benchmark, a paper. |
 
@@ -86,7 +87,7 @@ Running log of measurements and decisions: [`NOTES.md`](NOTES.md). Full plan:
 guardfork/
   guards/      G1–G5 rules + AST call signatures
   fork/        replay plans, fork agent, MC referee, probe planning
-  stats/       oracle, bootstrap, Bayesian prior (in progress)
+  stats/       change-point oracle, bootstrap, Bayesian guard prior
   q1/          localization table, search-policy simulator, triage
   train/       preference pairs, DPO export, losses, credit, prefix drift
   serve/       logging proxy (sampling injection, token ids), template parity
